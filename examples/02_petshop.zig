@@ -1,8 +1,9 @@
 const std = @import("std");
-const httpz = @import("httpz");
-const logz = @import("logz");
+const Io = std.Io;
 const datastar = @import("datastar");
+const HTTPRequest = datastar.HTTPRequest;
 const App = @import("02_cats.zig").App;
+const rebooter = @import("rebooter.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -17,60 +18,37 @@ pub fn main() !void {
     var app = try App.init(allocator);
     defer app.deinit();
 
-    var server = try httpz.Server(*App).init(allocator, .{
-        .port = PORT,
-        .address = "0.0.0.0",
-    }, app);
-    defer {
-        // clean shutdown
-        server.stop();
-        server.deinit();
-    }
+    var threaded: Io.Threaded = .init(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
 
-    // initialize a logging pool
-    try logz.setup(allocator, .{
-        .level = .Info,
-        .pool_size = 100,
-        .buffer_size = 4096,
-        .large_buffer_count = 8,
-        .large_buffer_size = 16384,
-        .output = .stdout,
-        .encoding = .logfmt,
-    });
-    defer logz.deinit();
+    try rebooter.start(io, allocator);
 
-    var router = try server.router(.{});
+    var server = try datastar.Server.init(io, allocator, "0.0.0.0", PORT);
+    server.ctx(app);
+    defer server.deinit();
 
-    router.get("/", index, .{});
-    router.get("/cats", catsList, .{});
-    router.post("/bid/:id", postBid, .{});
+    const r = server.router;
+    r.get("/", index, .{});
+    r.get("/cats", catsList, .{});
+    r.post("/bid/:id", postBid, .{});
 
     std.debug.print("listening http://localhost:{d}/\n", .{PORT});
     std.debug.print("... or any other IP address pointing to this machine\n", .{});
     try server.listen();
 }
 
-fn index(_: *App, _: *httpz.Request, res: *httpz.Response) !void {
-    const t1 = std.time.microTimestamp();
-    defer {
-        const t2 = std.time.microTimestamp();
-        logz.info().string("event", "index").int("elapsed (μs)", t2 - t1).log();
-    }
-
-    res.content_type = .HTML;
-    res.body = @embedFile("02_index.html");
+fn index(http: HTTPRequest) !void {
+    http.html(@embedFile("02_index.html"));
 }
 
-fn catsList(app: *App, req: *httpz.Request, res: *httpz.Response) !void {
-    const t1 = std.time.microTimestamp();
+fn catsList(http: HTTPRequest) !void {
     app.mutex.lock();
     defer {
         app.mutex.unlock();
-        const t2 = std.time.microTimestamp();
-        logz.info().string("event", "catsList").int("elapsed (μs)", t2 - t1).log();
     }
 
-    const sse = try datastar.NewSSESync(req, res);
+    const sse = try datastar.NewSSESync(http);
     try app.subscribe("cats", sse.stream, App.publishCatList);
 }
 

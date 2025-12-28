@@ -17,6 +17,7 @@ pub fn build(b: *std.Build) void {
         libc: bool = false,
     }{
         .{ .file = "examples/01_basic.zig", .name = "example_1" },
+        // .{ .file = "examples/02_petshop.zig", .name = "example_2" },
     };
 
     for (examples) |ex| {

@@ -1,7 +1,7 @@
 const std = @import("std");
 const datastar = @import("datastar");
-const HTTPRequest = datastar.HTTPRequest;
 const rebooter = @import("rebooter.zig");
+const HTTPRequest = datastar.HTTPRequest;
 
 const Io = std.Io;
 
@@ -21,8 +21,10 @@ fn getCountAndIncrement() usize {
     return update_count;
 }
 
+const HTTPServer = datastar.Server(void);
+
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     const allocator = gpa.allocator();
 
     // Evented isnt really working yet, so stick with Threaded IO for now
@@ -34,24 +36,24 @@ pub fn main() !void {
 
     try rebooter.start(io, allocator);
 
-    var server = try datastar.Server.init(io, allocator, "0.0.0.0", PORT);
+    var server = try HTTPServer.init(io, allocator, "0.0.0.0", PORT);
     defer server.deinit();
 
     const r = server.router;
-    try r.get("/", index);
+    r.get("/", index);
 
-    try r.get("/text-html", textHtml);
-    try r.get("/patch", patchElements);
-    try r.post("/patch/opts", patchElementsOpts);
-    try r.post("/patch/opts/reset", patchElementsOptsReset);
-    try r.get("/patch/json", jsonSignals);
-    try r.get("/patch/signals", patchSignals);
-    try r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
-    try r.get("/patch/signals/remove/:names", patchSignalsRemove);
-    try r.get("/executescript/:sample", executeScript);
-    try r.get("/svg-morph", svgMorph);
-    try r.get("/mathml-morph", mathMorph);
-    try r.get("/code/:snip", code);
+    r.get("/text-html", textHtml);
+    r.get("/patch", patchElements);
+    r.post("/patch/opts", patchElementsOpts);
+    r.post("/patch/opts/reset", patchElementsOptsReset);
+    r.get("/patch/json", jsonSignals);
+    r.get("/patch/signals", patchSignals);
+    r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
+    r.get("/patch/signals/remove/:names", patchSignalsRemove);
+    r.get("/executescript/:sample", executeScript);
+    r.get("/svg-morph", svgMorph);
+    r.get("/mathml-morph", mathMorph);
+    r.get("/code/:snip", code);
 
     // router.get("/patch/signals", patchSignals, .{});
     // router.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing, .{});
@@ -220,7 +222,6 @@ fn patchSignalsRemove(http: HTTPRequest) !void {
     defer std.debug.print("patchSignalsOnlyIfMissing elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
     const signals_to_remove: []const u8 = http.params.get("names").?;
-    std.debug.print("s2r {any}\n", .{signals_to_remove});
     var names_iter = std.mem.splitScalar(u8, signals_to_remove, ',');
 
     var sse = try datastar.NewSSE(http);

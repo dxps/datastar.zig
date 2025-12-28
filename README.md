@@ -189,11 +189,11 @@ pub fn main() !void {
 
     // Add some routes with different http methods
     const r = server.router;
-    try r.get("/", index);
-    try r.get("/text-html", textHtml);
-    try r.get("/patch", patchElements);
-    try r.post("/patch/opts", patchElementsOpts);
-    try r.get("/code/:snip", code);
+    r.get("/", index);
+    r.get("/text-html", textHtml);
+    r.get("/patch", patchElements);
+    r.post("/patch/opts", patchElementsOpts);
+    r.get("/code/:snip", code);
 
     std.debug.print("Server listening on http://localhost:8080\n", .{});
     try server.run();

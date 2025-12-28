@@ -1,7 +1,7 @@
 const std = @import("std");
-const httpz = @import("httpz");
 const logz = @import("logz");
 const datastar = @import("datastar");
+const HTTPRequest = datastar.HTTPRequest;
 const Allocator = std.mem.Allocator;
 
 const Cat = struct {

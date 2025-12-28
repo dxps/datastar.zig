@@ -2,8 +2,9 @@ const std = @import("std");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-pub const Server = @import("server.zig");
-pub const HTTPRequest = Server.HTTPRequest;
+const server_module = @import("server.zig");
+pub const Server = server_module.Server;
+pub const HTTPRequest = server_module.HTTPRequest;
 
 pub const Command = enum {
     patchElements,
@@ -197,15 +198,15 @@ pub const SSE = struct {
     }
 };
 
-pub fn NewSSE(http: Server.HTTPRequest) !SSE {
+pub fn NewSSE(http: HTTPRequest) !SSE {
     return NewSSEOpt(http, .{});
 }
 
-pub fn NewSSESync(http: Server.HTTPRequest) !SSE {
+pub fn NewSSESync(http: HTTPRequest) !SSE {
     return NewSSEOpt(http, .{ .sync = true });
 }
 
-pub fn NewSSEOpt(http: Server.HTTPRequest, opt: SSEOptions) !SSE {
+pub fn NewSSEOpt(http: HTTPRequest, opt: SSEOptions) !SSE {
     const buf_size = if (opt.buffer_size != 0) opt.buffer_size else DEFAULT_BUFFER_SIZE;
     const buf = try http.arena.alloc(u8, buf_size);
 
