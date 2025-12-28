@@ -1,7 +1,6 @@
 == patchElements handler ==
 
-var buf: [1024]u8 = undefined;
-var sse = try datastar.NewSSE(req, &buf);
+var sse = try datastar.NewSSE(http);
 defer sse.close();
 
 try sse.patchElementsFmt(

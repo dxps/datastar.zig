@@ -10,8 +10,8 @@ if (signals.morph.len < 1) {
     return;
 }
 
-var sse = try datastar.NewSSE(req, res);
-defer sse.close(res);
+var sse = try datastar.NewSSE(http);
+defer sse.close();
 
 // read the signals to work out which options to set, checking the name of the
 // option vs the enum values, and add them relative to the mf-patch-opt item

@@ -34,11 +34,6 @@ pub fn main() !void {
 
     try rebooter.start(io, allocator);
 
-    std.debug.print(
-        "Created Threaded IO with limit of {} threads\n",
-        .{threaded.async_limit.toInt() orelse 0},
-    );
-
     var server = try datastar.Server.init(io, allocator, "0.0.0.0", PORT);
     defer server.deinit();
 
@@ -315,7 +310,7 @@ fn svgMorph(http: HTTPRequest) !void {
     const opt = blk: {
         break :blk http.readSignals(SVGMorphOptions) catch break :blk SVGMorphOptions{};
     };
-    var sse = try datastar.NewSSE(http);
+    var sse = try datastar.NewSSESync(http);
     defer sse.close();
 
     for (1..opt.svgMorph + 1) |_| {
@@ -330,7 +325,6 @@ fn svgMorph(http: HTTPRequest) !void {
             },
             .{ .namespace = .svg },
         );
-        try sse.sync();
         try http.io.sleep(.fromMilliseconds(100), .real);
         try sse.patchElementsFmt(
             \\<rect id="svg-square" x="{}" y="{}" width="{}" height="80" class="fill-green-500 transition-all duration-500" />
@@ -343,7 +337,6 @@ fn svgMorph(http: HTTPRequest) !void {
             },
             .{ .namespace = .svg },
         );
-        try sse.sync();
         try http.io.sleep(.fromMilliseconds(100), .real);
         try sse.patchElementsFmt(
             \\<polygon id="svg-triangle" points="{},{} {},{} {},{}" class="fill-blue-500 transition-all duration-500" />
@@ -359,7 +352,6 @@ fn svgMorph(http: HTTPRequest) !void {
             },
             .{ .namespace = .svg },
         );
-        try sse.sync();
         try http.io.sleep(.fromMilliseconds(100), .real);
     }
 }
@@ -392,7 +384,7 @@ fn mathMorph(http: HTTPRequest) !void {
     const opt = blk: {
         break :blk http.readSignals(MathMorphOptions) catch break :blk MathMorphOptions{};
     };
-    var sse = try datastar.NewSSE(http);
+    var sse = try datastar.NewSSESync(http);
     defer sse.close();
 
     if (opt.mathmlMorph == 1) {
@@ -418,7 +410,6 @@ fn mathMorph(http: HTTPRequest) !void {
 
         const r = prng.random().intRangeAtMost(u8, 1, mathMLs.len);
         try sse.patchElements(mathMLs[r - 1], .{ .namespace = .mathml });
-        try sse.sync();
         try http.io.sleep(.fromMilliseconds(delay), .real);
     }
     try sse.patchSignals(.{ .mathmlMorph = 1 }, .{}, .{});

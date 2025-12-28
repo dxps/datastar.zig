@@ -7,8 +7,8 @@ const MathMorphOptions = struct {
 const opt = blk: {
     break :blk datastar.readSignals(MathMorphOptions, req) catch break :blk MathMorphOptions{ .mathmlMorph = 1 };
 };
-var sse = try datastar.NewSSESync(req, res);
-defer sse.close(res);
+var sse = try datastar.NewSSESync(http);
+defer sse.close();
 
 if (opt.mathmlMorph == 1) {
     try sse.patchElementsFmt(
@@ -34,6 +34,6 @@ for (1..opt.mathmlMorph + 1) |i| {
 
     const r = prng.random().intRangeAtMost(u8, 1, mathMLs.len);
     try sse.patchElements(mathMLs[r - 1], .{ .namespace = .mathml });
-    std.Thread.sleep(std.time.ns_per_ms * delay);
+    try http.io.sleep(.fromMilliseconds(delay), .real);
 }
 try sse.patchSignals(.{ .mathmlMorph = 1 }, .{}, .{});

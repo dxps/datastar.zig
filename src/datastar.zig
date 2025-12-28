@@ -56,6 +56,7 @@ const DEFAULT_BUFFER_SIZE = 16 * 1024;
 
 pub const SSEOptions = struct {
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
+    sync: bool = false,
 };
 
 pub const SSE = struct {
@@ -65,6 +66,7 @@ pub const SSE = struct {
     msg: ?Message = null,
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
     arena: ?std.mem.Allocator,
+    sync: bool,
 
     pub fn deinit(self: *SSE) void {
         self.flush() catch {};
@@ -79,11 +81,9 @@ pub const SSE = struct {
         try self.stream.writer.writeAll(data);
         try self.stream.writer.flush();
         _ = self.output_buffer.writer.consume(data.len);
-    }
-
-    pub fn sync(self: *SSE) !void {
-        try self.flush();
-        try self.final_out.flush();
+        if (self.sync) {
+            try self.final_out.flush();
+        }
     }
 
     /// close() is used for short lived SSE only
@@ -201,6 +201,10 @@ pub fn NewSSE(http: Server.HTTPRequest) !SSE {
     return NewSSEOpt(http, .{});
 }
 
+pub fn NewSSESync(http: Server.HTTPRequest) !SSE {
+    return NewSSEOpt(http, .{ .sync = true });
+}
+
 pub fn NewSSEOpt(http: Server.HTTPRequest, opt: SSEOptions) !SSE {
     const buf_size = if (opt.buffer_size != 0) opt.buffer_size else DEFAULT_BUFFER_SIZE;
     const buf = try http.arena.alloc(u8, buf_size);
@@ -225,6 +229,7 @@ pub fn NewSSEOpt(http: Server.HTTPRequest, opt: SSEOptions) !SSE {
         .arena = http.arena,
         .output_buffer = allocating_writer,
         .buffer_size = opt.buffer_size,
+        .sync = opt.sync,
     };
 }
 

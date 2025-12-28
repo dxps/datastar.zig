@@ -3,8 +3,8 @@
 const sample = req.param("sample").?;
 const sample_id = try std.fmt.parseInt(u8, sample, 10);
 
-var sse = try datastar.NewSSE(req, res);
-defer sse.close(res);
+var sse = try datastar.NewSSE(http);
+defer sse.close();
 
 switch (sample_id) {
     1 => {
