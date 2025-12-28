@@ -162,7 +162,6 @@ fn handleConnection(self: *Server, conn: Io.net.Stream) void {
         var arena: std.heap.ArenaAllocator = .init(self.allocator);
         defer arena.deinit();
 
-        // Wrap the standard request into your Datastar HTTPRequest struct
         var http = HTTPRequest{
             .io = self.io,
             .req = &request,

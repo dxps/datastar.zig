@@ -56,7 +56,7 @@ If you just want to quickly install this, and try out the demo programs first, d
 ```
 ... get zig 0.15.2 installed on your machine
 git clone https://github.com/zigster64/datastar.zig
-cd datastar.http.zig
+cd datastar.zig
 zig build
 ./zig-out/bin/01_basic
 ```
@@ -69,7 +69,6 @@ section that displays the code to use on your backend to drive the page you are 
 
 ![Screenshot of example_1](./docs/images/example_1a.png)
 
-`./zig-out/bin/tokamak_basic` - Same application, but using Tokamak instead of directly using http.zig
 
 ---
 
@@ -128,8 +127,6 @@ This allows room for open discussion, as well as tracking of issues opened and c
 
 When you run `zig build` it will compile several apps into `./zig-out/bin/` to demonstrate using different parts 
 of the api
-
-Using http.zig :
 
 - example_1  shows using the Datastar API using basic SDK handlers
 - example_2  shows an example multi-user auction site for cats with realtime updates using pub/sub
@@ -235,6 +232,7 @@ datastar.readSignals(comptime T: type, req: anytype) !T
 
 // set the connection to SSE, and return an SSE object
 var sse = datastar.NewSSE(http) !SSE
+var sse = datastar.NewSSESync(http) !SSE
 var sse = datastar.NewSSEOpt(http, sse_options) !SSE
 
 // patch elements function variants
@@ -276,6 +274,11 @@ and no chunked encoding.
 You can declare your sse object early in the handler, and then set headers / cookies etc at any time 
 in the handler. Because actual network updates are batched till the end, everything goes out in the correct order.
 
+```zig
+    pub fn NewSSESync(http) !SSE 
+```
+Will create an SSE object that will do immediate Synchronous Writes to the browser as each `patchElements()` call is made.
+
 Finally, there is a NewSSE variant that takes a set of options, for special cases
 
 ```zig
@@ -284,6 +287,7 @@ Finally, there is a NewSSE variant that takes a set of options, for special case
     // Where options are 
     const SSEOptions = struct {
         buffer_size: usize = 16 * 1024, // internal buffer size for batched mode
+        sync: bool = false,
     };
 ```
 
@@ -493,12 +497,13 @@ will buffer up the converted SSE stream, which is then written to the client bro
 finalised.
 
 In some cases you may want to do Synchronous Writes to the client browser as each operation is performed in the
-handler.
+handler, so that as each `patchElements()` call is made, the patch is written immediately to the browser.
+
+In this case use `NewSSESync(http)` to set the SSE into Synchronous Mode.
 
 For example - in the SVGMorph demo, we want to generate a randomized SVG update, then write that to the client 
 browser, then pause for 100ms and repeat, to provide a smooth animation of the SVG.
 
-To flush all the buffers and write the output the client browser inside a handler, use `try sse.sync()` to do this.
 
 ## Namespaces - SVG and MathML (Datastar RC7 feature)
 
