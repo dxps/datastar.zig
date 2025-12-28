@@ -244,7 +244,6 @@ pub fn NewSSEFromStream(stream: *std.http.BodyWriter, allocator: std.mem.Allocat
 }
 
 pub const Message = struct {
-    // stream: std.net.Stream,
     stream_writer: *std.Io.Writer, // the final destination where the output gets sent
     out_buffer: *std.Io.Writer, // an intermediate buffer to write the expanded Datastar event stream to
     input_buffer: [8 * 1024]u8 = undefined,
@@ -444,7 +443,7 @@ pub const Message = struct {
 };
 
 const SessionType = ?[]const u8;
-const StreamList = std.ArrayList(std.net.Stream);
+const StreamList = std.ArrayList(std.Io.net.Stream);
 
 pub fn Subscribers(comptime T: type) type {
     return struct {
@@ -456,7 +455,7 @@ pub fn Subscribers(comptime T: type) type {
 
         const Self = @This();
         const Subscription = struct {
-            stream: std.net.Stream,
+            stream: std.Io.net.Stream,
             action: Callback(T),
             session: SessionType = null,
         };
@@ -465,7 +464,7 @@ pub fn Subscribers(comptime T: type) type {
         const Subscriptions = std.StringHashMap(std.ArrayList(Subscription));
 
         // A map of which topics each stream is subscribed to, for quick lookup by stream
-        const StreamTopicMap = std.AutoHashMap(std.net.Stream, std.ArrayList([]const u8));
+        const StreamTopicMap = std.AutoHashMap(std.Io.net.Stream, std.ArrayList([]const u8));
 
         pub fn init(gpa: Allocator, ctx: T) !Self {
             return .{
@@ -524,11 +523,11 @@ pub fn Subscribers(comptime T: type) type {
             }
         }
 
-        pub fn subscribe(self: *Self, topic: []const u8, stream: std.net.Stream, func: Callback(T)) !void {
+        pub fn subscribe(self: *Self, topic: []const u8, stream: std.Io.net.Stream, func: Callback(T)) !void {
             return self.subscribeSession(topic, stream, func, null);
         }
 
-        pub fn subscribeSession(self: *Self, topic: []const u8, stream: std.net.Stream, func: Callback(T), session: SessionType) !void {
+        pub fn subscribeSession(self: *Self, topic: []const u8, stream: std.Io.net.Stream, func: Callback(T), session: SessionType) !void {
             self.mutex.lock();
             defer {
                 self.debugState("after subscribe session");
@@ -698,7 +697,7 @@ pub fn Subscribers(comptime T: type) type {
 
 pub fn Callback(comptime ctx: type) type {
     if (ctx == void) {
-        return *const fn (std.net.Stream) anyerror!void;
+        return *const fn (std.Io.net.Stream) anyerror!void;
     }
-    return *const fn (ctx, std.net.Stream, SessionType) anyerror!void;
+    return *const fn (ctx, std.Io.net.Stream, SessionType) anyerror!void;
 }

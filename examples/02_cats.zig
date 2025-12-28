@@ -61,8 +61,8 @@ pub const App = struct {
     }
 
     // convenience function
-    pub fn subscribe(app: *App, topic: []const u8, stream: std.net.Stream, callback: anytype) !void {
-        try app.subscribers.subscribe(topic, stream, callback);
+    pub fn subscribe(app: *App, topic: []const u8, sse: datastar.SSE, callback: anytype) !void {
+        try app.subscribers.subscribe(topic, sse, callback);
     }
 
     // convenience function
@@ -70,15 +70,15 @@ pub const App = struct {
         try app.subscribers.publish(topic);
     }
 
-    pub fn publishCatList(app: *App, stream: std.net.Stream, _: ?[]const u8) !void {
+    pub fn publishCatList(app: *App, sse: datastar.SSE, _: ?[]const u8) !void {
         const t1 = std.time.microTimestamp();
         defer {
             const t2 = std.time.microTimestamp();
-            logz.info().string("event", "publishCatList").int("stream", stream.handle).int("elapsed (μs)", t2 - t1).log();
+            logz.info().string("event", "publishCatList").int("elapsed (μs)", t2 - t1).log();
         }
 
-        var sse = datastar.NewSSEFromStream(stream, app.gpa);
-        defer sse.deinit();
+        // var sse = datastar.NewSSEFromStream(stream, app.gpa);
+        // defer sse.deinit();
 
         var w = sse.patchElementsWriter(.{});
         try w.print(

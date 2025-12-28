@@ -24,7 +24,7 @@ pub fn Server(comptime Context: type) type {
             };
         }
 
-        pub fn context(self: *Self, ctx: *Context) void {
+        pub fn setContext(self: *Self, ctx: Context) void {
             self.ctx = ctx;
         }
 
