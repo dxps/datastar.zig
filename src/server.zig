@@ -10,7 +10,7 @@ pub fn Server(comptime Context: type) type {
         allocator: Allocator,
         server: std.Io.net.Server = undefined,
         router: *Router(Context),
-        ctx: ?*Context = null,
+        ctx: ?Context = null,
 
         pub fn init(io: Io, allocator: Allocator, addr: []const u8, port: u16) !Self {
             const address = try Io.net.IpAddress.parseIp4(addr, port);
@@ -54,6 +54,7 @@ pub fn Server(comptime Context: type) type {
 
             while (true) {
                 var request = server.receiveHead() catch |err| {
+                    std.debug.print("Error reading header on stream {} IoWriter {*}:{}\n", .{ conn.socket.handle, &writer.interface, err });
                     if (err == error.HttpConnectionClosing) break;
                     return;
                 };
@@ -302,7 +303,7 @@ pub fn Router(comptime Context: type) type {
             current.handlers[@intFromEnum(method)] = handler;
         }
 
-        pub fn dispatch(self: *Self, ctx: ?*Context, http_req: *HTTPRequest) !void {
+        pub fn dispatch(self: *Self, ctx: ?Context, http_req: *HTTPRequest) !void {
             var params = Params{};
             var current = self.root;
 
@@ -346,4 +347,160 @@ pub fn Router(comptime Context: type) type {
             return http_req.req.respond("Method Not Allowed", .{ .status = .method_not_allowed });
         }
     };
+}
+
+const TestApp = struct { data: i32 };
+
+fn testAppHandler(app: *TestApp, _: HTTPRequest) !void {
+    std.debug.print("test *App handler data:{d}\n", .{app.data});
+}
+
+fn testVoidHandler(_: HTTPRequest) !void {
+    std.debug.print("test void handler\n", .{});
+}
+
+fn testGetHandler(app: *TestApp, _: HTTPRequest) !void {
+    std.debug.print("test get handler data:{d}\n", .{app.data});
+}
+
+fn testPostHandler(app: *TestApp, _: HTTPRequest) !void {
+    std.debug.print("test post handler data:{d}\n", .{app.data});
+}
+
+test "Params.get returns correct value" {
+    var params = Params{};
+    params.names[0] = "id";
+    params.values[0] = "123";
+    params.names[1] = "name";
+    params.values[1] = "alice";
+    params.count = 2;
+
+    try std.testing.expectEqualStrings("123", params.get("id").?);
+    try std.testing.expectEqualStrings("alice", params.get("name").?);
+    try std.testing.expect(params.get("missing") == null);
+}
+
+test "RouteHandler signature for void context" {
+    const Handler = RouteHandler(void);
+    const info = @typeInfo(Handler);
+
+    // Should be a function pointer with 1 parameter (just HTTPRequest)
+    try std.testing.expect(info == .pointer);
+    const fn_info = @typeInfo(info.pointer.child).@"fn";
+    try std.testing.expectEqual(1, fn_info.params.len);
+}
+
+test "RouteHandler signature for App context" {
+    const App = struct { count: usize };
+    const Handler = RouteHandler(*App);
+    const info = @typeInfo(Handler);
+
+    // Should be a function pointer with 2 parameters (ctx and HTTPRequest)
+    try std.testing.expect(info == .pointer);
+    const fn_info = @typeInfo(info.pointer.child).@"fn";
+    try std.testing.expectEqual(2, fn_info.params.len);
+}
+
+test "Router can add and store routes" {
+    var router = try Router(*TestApp).init(std.testing.allocator);
+    defer {
+        router.root.deinit(std.testing.allocator);
+        std.testing.allocator.destroy(router);
+    }
+
+    router.get("/test", testAppHandler);
+
+    // Verify the route was added
+    try std.testing.expect(router.root.children.items.len == 1);
+    try std.testing.expectEqualStrings("test", router.root.children.items[0].segment);
+}
+
+test "Router handles parameterized routes" {
+    var router = try Router(*TestApp).init(std.testing.allocator);
+    defer {
+        router.root.deinit(std.testing.allocator);
+        std.testing.allocator.destroy(router);
+    }
+
+    router.get("/user/:id", testAppHandler);
+
+    // Navigate to /user
+    try std.testing.expect(router.root.children.items.len == 1);
+    try std.testing.expectEqualStrings("user", router.root.children.items[0].segment);
+
+    // Check :id parameter
+    const user_node = router.root.children.items[0];
+    try std.testing.expect(user_node.children.items.len == 1);
+    try std.testing.expect(user_node.children.items[0].is_param);
+    try std.testing.expectEqualStrings("id", user_node.children.items[0].param_name);
+}
+
+test "Router with void context" {
+    var router = try Router(void).init(std.testing.allocator);
+    defer {
+        router.root.deinit(std.testing.allocator);
+        std.testing.allocator.destroy(router);
+    }
+
+    router.get("/test", testVoidHandler);
+
+    try std.testing.expect(router.root.children.items.len == 1);
+}
+
+test "Router deduplicates identical paths" {
+    var router = try Router(*TestApp).init(std.testing.allocator);
+    defer {
+        router.root.deinit(std.testing.allocator);
+        std.testing.allocator.destroy(router);
+    }
+
+    router.get("/test", testGetHandler);
+    router.post("/test", testPostHandler);
+
+    // Should only have one child node for "/test", with both GET and POST handlers
+    try std.testing.expect(router.root.children.items.len == 1);
+    try std.testing.expectEqualStrings("test", router.root.children.items[0].segment);
+
+    const test_node = router.root.children.items[0];
+    const get_idx = @intFromEnum(std.http.Method.GET);
+    const post_idx = @intFromEnum(std.http.Method.POST);
+
+    try std.testing.expect(test_node.handlers[get_idx] != null);
+    try std.testing.expect(test_node.handlers[post_idx] != null);
+}
+
+test "urlDecode handles percent encoding" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const decoded = try HTTPRequest.urlDecode(arena.allocator(), "hello%20world");
+    try std.testing.expectEqualStrings("hello world", decoded);
+}
+
+test "urlDecode handles plus signs" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const decoded = try HTTPRequest.urlDecode(arena.allocator(), "hello+world");
+    try std.testing.expectEqualStrings("hello world", decoded);
+}
+
+test "urlDecode handles mixed encoding" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const decoded = try HTTPRequest.urlDecode(arena.allocator(), "foo+bar%3Dbaz");
+    try std.testing.expectEqualStrings("foo bar=baz", decoded);
+}
+
+test "Server type can be created with void context" {
+    const ServerVoid = Server(void);
+    const type_info = @typeInfo(ServerVoid);
+    try std.testing.expect(type_info == .@"struct");
+}
+
+test "Server type can be created with App context" {
+    const ServerApp = Server(*TestApp);
+    const type_info = @typeInfo(ServerApp);
+    try std.testing.expect(type_info == .@"struct");
 }

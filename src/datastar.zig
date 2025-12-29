@@ -53,7 +53,7 @@ pub const ExecuteScriptOptions = struct {
     retry_duration: ?i64 = null,
 };
 
-const DEFAULT_BUFFER_SIZE = 16 * 1024;
+const DEFAULT_BUFFER_SIZE = 8 * 1024;
 
 pub const SSEOptions = struct {
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
@@ -61,13 +61,13 @@ pub const SSEOptions = struct {
 };
 
 pub const SSE = struct {
-    stream: *std.http.BodyWriter,
-    final_out: *std.Io.Writer,
-    output_buffer: std.Io.Writer.Allocating,
+    stream: ?*std.http.BodyWriter = null,
+    final_out: *Io.Writer,
+    output_buffer: Io.Writer.Allocating,
     msg: ?Message = null,
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
-    arena: ?std.mem.Allocator,
     sync: bool,
+    chunked: bool = false, // set to true if we want to do the chunking manually ourselves
 
     pub fn deinit(self: *SSE) void {
         self.flush() catch {};
@@ -79,23 +79,34 @@ pub const SSE = struct {
         const data = self.output_buffer.written();
         if (data.len == 0) return;
 
-        try self.stream.writer.writeAll(data);
-        try self.stream.writer.flush();
-        _ = self.output_buffer.writer.consume(data.len);
-        if (self.sync) {
+        if (self.stream) |stream| {
+            // write to the bodyWriter, on flush this gets chunked and forwarded to the final_output
+            try stream.writer.writeAll(data);
+            try stream.writer.flush();
+            if (self.sync) {
+                try self.final_out.flush();
+            }
+        } else {
+            // there is no bodyWriter - so we output straight to the final_output instead, and wrap it in a chunk
+            try self.final_out.print("{x}\r\n", .{data.len});
+            try self.final_out.writeAll(data);
+            try self.final_out.writeAll("\r\n");
             try self.final_out.flush();
         }
+        _ = self.output_buffer.writer.consume(data.len);
     }
 
     /// close() is used for short lived SSE only
     /// on close(), this will populate the response body the call res.write()
     /// which will output both the header and the body using async IO
     pub fn close(self: *SSE) void {
-        self.stream.writer.writeAll(self.body()) catch {};
-        self.stream.end() catch {};
+        if (self.stream) |stream| {
+            stream.writer.writeAll(self.body()) catch {};
+            stream.end() catch {};
+        }
     }
 
-    pub fn writer(self: *Message) ?*std.Io.Writer {
+    pub fn writer(self: *Message) ?*Io.Writer {
         if (self.msg) |msg| {
             return &msg.interface;
         }
@@ -131,13 +142,12 @@ pub const SSE = struct {
         try self.flush();
     }
 
-    pub fn patchElementsWriter(self: *SSE, opt: PatchElementsOptions) *std.Io.Writer {
+    pub fn patchElementsWriter(self: *SSE, opt: PatchElementsOptions) *Io.Writer {
         if (self.msg) |*msg| {
             msg.swapTo(.patchElements, opt);
         } else {
-            var msg: Message = undefined;
-            msg.init(.patchElements, opt, &self.output_buffer.writer);
-            self.msg = msg;
+            self.msg = .default();
+            self.msg.?.init(.patchElements, opt, &self.output_buffer.writer);
         }
         return &self.msg.?.interface;
     }
@@ -153,7 +163,7 @@ pub const SSE = struct {
         try self.flush();
     }
 
-    pub fn patchSignalsWriter(self: *SSE, opt: PatchSignalsOptions) *std.Io.Writer {
+    pub fn patchSignalsWriter(self: *SSE, opt: PatchSignalsOptions) *Io.Writer {
         if (self.msg) |*msg| {
             msg.swapTo(.patchSignals, opt);
         } else {
@@ -186,7 +196,7 @@ pub const SSE = struct {
         try self.flush();
     }
 
-    pub fn executeScriptWriter(self: *SSE, opt: ExecuteScriptOptions) *std.Io.Writer {
+    pub fn executeScriptWriter(self: *SSE, opt: ExecuteScriptOptions) *Io.Writer {
         if (self.msg) |*msg| {
             msg.swapTo(.executeScript, opt);
         } else {
@@ -220,32 +230,36 @@ pub fn NewSSEOpt(http: HTTPRequest, opt: SSEOptions) !SSE {
         } } },
     );
     const allocating_writer = blk: {
-        if (opt.buffer_size == 0) break :blk std.Io.Writer.Allocating.init(http.arena);
-        break :blk std.Io.Writer.Allocating.initCapacity(http.arena, opt.buffer_size) catch std.Io.Writer.Allocating.init(http.arena);
+        if (opt.buffer_size == 0) break :blk Io.Writer.Allocating.init(http.arena);
+        break :blk Io.Writer.Allocating.initCapacity(http.arena, opt.buffer_size) catch Io.Writer.Allocating.init(http.arena);
     };
+    if (opt.sync) {
+        try res.flush();
+    }
 
     return SSE{
         .stream = res,
         .final_out = http.req.server.out,
-        .arena = http.arena,
         .output_buffer = allocating_writer,
         .buffer_size = opt.buffer_size,
         .sync = opt.sync,
     };
 }
 
-pub fn NewSSEFromStream(stream: *std.http.BodyWriter, allocator: std.mem.Allocator) SSE {
-    const allocating_writer = std.Io.Writer.Allocating.initCapacity(allocator, 4 * 1024) catch std.Io.Writer.Allocating.init(allocator);
+pub fn NewSSEFromStream(stream: *Io.Writer, allocator: std.mem.Allocator) SSE {
+    const allocating_writer = Io.Writer.Allocating.initCapacity(allocator, 8 * 1024) catch Io.Writer.Allocating.init(allocator);
     return SSE{
-        .stream = stream,
+        .stream = null,
+        .final_out = stream,
         .output_buffer = allocating_writer,
         .buffer_size = 0,
+        .sync = true,
+        .chunked = true,
     };
 }
 
 pub const Message = struct {
-    stream_writer: *std.Io.Writer, // the final destination where the output gets sent
-    out_buffer: *std.Io.Writer, // an intermediate buffer to write the expanded Datastar event stream to
+    out_buffer: *Io.Writer, // an intermediate buffer to write the expanded Datastar event stream to
     input_buffer: [8 * 1024]u8 = undefined,
     started: bool = false,
     command: Command = .patchElements,
@@ -255,9 +269,13 @@ pub const Message = struct {
     execute_script_options: ExecuteScriptOptions = .{},
 
     line_in_progress: bool = false,
-    interface: std.Io.Writer,
+    interface: Io.Writer,
 
-    fn init(m: *Message, comptime command: Command, opt: anytype, out_buffer: *std.Io.Writer) void {
+    fn default() Message {
+        return undefined;
+    }
+
+    fn init(m: *Message, comptime command: Command, opt: anytype, out_buffer: *Io.Writer) void {
         m.out_buffer = out_buffer;
         m.command = command;
         m.interface = .{
@@ -388,7 +406,7 @@ pub const Message = struct {
         self.started = true;
     }
 
-    fn drain(w: *std.Io.Writer, data: []const []const u8, splat: usize) std.Io.Writer.Error!usize {
+    fn drain(w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
         var self: *Message = @fieldParentPtr("interface", w);
         _ = splat;
 
@@ -408,7 +426,7 @@ pub const Message = struct {
     }
 
     // implementation of writeBytes using SIMD scan of the input to find newlines
-    fn writeBytesScan(self: *Message, stream_writer: *std.Io.Writer, bytes: []const u8) !usize {
+    fn writeBytesScan(self: *Message, stream_writer: *Io.Writer, bytes: []const u8) !usize {
         const prefix = switch (self.command) {
             .patchElements, .executeScript => "data: elements ",
             .patchSignals => "data: signals ",
@@ -443,7 +461,7 @@ pub const Message = struct {
 };
 
 const SessionType = ?[]const u8;
-const StreamList = std.ArrayList(std.Io.net.Stream);
+const StreamList = std.ArrayList(*Io.Writer);
 
 pub fn Subscribers(comptime T: type) type {
     return struct {
@@ -455,7 +473,7 @@ pub fn Subscribers(comptime T: type) type {
 
         const Self = @This();
         const Subscription = struct {
-            stream: std.Io.net.Stream,
+            stream: *Io.Writer,
             action: Callback(T),
             session: SessionType = null,
         };
@@ -464,7 +482,7 @@ pub fn Subscribers(comptime T: type) type {
         const Subscriptions = std.StringHashMap(std.ArrayList(Subscription));
 
         // A map of which topics each stream is subscribed to, for quick lookup by stream
-        const StreamTopicMap = std.AutoHashMap(std.Io.net.Stream, std.ArrayList([]const u8));
+        const StreamTopicMap = std.AutoHashMap(*Io.Writer, std.ArrayList([]const u8));
 
         pub fn init(gpa: Allocator, ctx: T) !Self {
             return .{
@@ -501,7 +519,7 @@ pub fn Subscribers(comptime T: type) type {
                 while (iterator.next()) |entry| {
                     std.debug.print("  Topic: {s} Streams: [ ", .{entry.key_ptr.*});
                     for (entry.value_ptr.*.items) |sub| {
-                        std.debug.print(" {d}", .{sub.stream.handle});
+                        std.debug.print(" {*}", .{sub.stream});
                         if (sub.session) |ss| {
                             std.debug.print(":{s}", .{ss});
                         }
@@ -513,7 +531,7 @@ pub fn Subscribers(comptime T: type) type {
             {
                 var iterator = self.stream_topics.iterator();
                 while (iterator.next()) |entry| {
-                    std.debug.print("  Stream: {d} Topics: [", .{entry.key_ptr.*.handle});
+                    std.debug.print("  Stream: {*} Topics: [", .{entry.key_ptr.*});
 
                     for (entry.value_ptr.*.items) |topic| {
                         std.debug.print(" {s}", .{topic});
@@ -523,15 +541,23 @@ pub fn Subscribers(comptime T: type) type {
             }
         }
 
-        pub fn subscribe(self: *Self, topic: []const u8, stream: std.Io.net.Stream, func: Callback(T)) !void {
+        pub fn subscribe(self: *Self, topic: []const u8, stream: *Io.Writer, func: Callback(T)) !void {
             return self.subscribeSession(topic, stream, func, null);
         }
 
-        pub fn subscribeSession(self: *Self, topic: []const u8, stream: std.Io.net.Stream, func: Callback(T), session: SessionType) !void {
+        pub fn subscribeSession(self: *Self, topic: []const u8, stream: *Io.Writer, func: Callback(T), session: SessionType) !void {
             self.mutex.lock();
             defer {
                 self.debugState("after subscribe session");
                 self.mutex.unlock();
+            }
+
+            // purge it first ?
+            {
+                var streams: StreamList = .empty;
+                try streams.append(self.gpa, stream);
+                self.purge(streams);
+                streams.deinit(self.gpa);
             }
 
             // check first that the given stream isnt already subscribed to this topic !!
@@ -539,8 +565,9 @@ pub fn Subscribers(comptime T: type) type {
                 if (self.stream_topics.get(stream)) |topics| {
                     for (topics.items) |subscribed_topic| {
                         if (std.mem.eql(u8, topic, subscribed_topic)) {
-                            std.debug.print("Stream {d} is already subscribed to topic {s} ... ignoring.!\n", .{ stream.handle, topic });
-                            return;
+                            std.debug.print("Stream {*} is already subscribed to topic {s} ... ignoring.!\n", .{ stream, topic });
+                            break;
+                            // return;
                         }
                     }
                 }
@@ -548,9 +575,9 @@ pub fn Subscribers(comptime T: type) type {
 
             // on first subscription, try to write the output first
             // if it works, then we add them to the subscriber list
-            std.debug.print("calling the initial subscribe callback function for topic {s} on stream {d}\n", .{ topic, stream.handle });
+            std.debug.print("calling the initial subscribe callback function for topic {s} on stream {*}\n", .{ topic, stream });
             @call(.auto, func, .{ self.app, stream, session }) catch |err| {
-                stream.close();
+                // stream.close();
                 return err;
             };
 
@@ -596,11 +623,7 @@ pub fn Subscribers(comptime T: type) type {
         fn purge(self: *Self, streams: StreamList) void {
             if (streams.items.len == 0) return;
 
-            const t1 = std.time.microTimestamp();
-            defer {
-                self.debugState("after purge session");
-                std.debug.print("Purge took {d}μs\n", .{std.time.microTimestamp() - t1});
-            }
+            defer self.debugState("after purge session");
 
             // get the topics that the stream was subscribed to
             // so we can limit the number of subscription lists to look through
@@ -615,9 +638,9 @@ pub fn Subscribers(comptime T: type) type {
                                 i -= 1;
                                 const sub = subs.items[i];
                                 for (streams.items) |st| {
-                                    if (sub.stream.handle == st.handle) {
+                                    if (sub.stream == st) {
                                         _ = subs.swapRemove(i);
-                                        std.debug.print("Closing subscriber Stream {d} on topic {s}\n", .{ sub.stream.handle, topic });
+                                        std.debug.print("Closing subscriber Stream {*} on topic {s}\n", .{ sub.stream, topic });
                                     }
                                 }
                             }
@@ -627,7 +650,7 @@ pub fn Subscribers(comptime T: type) type {
                     }
                     topics.deinit(self.gpa);
                 }
-                std.debug.print("Removing topic list for Stream {d}\n", .{stream.handle});
+                std.debug.print("Removing topic list for Stream {*}\n", .{stream});
                 _ = self.stream_topics.remove(stream);
             }
         }
@@ -656,31 +679,31 @@ pub fn Subscribers(comptime T: type) type {
                     const sub = subs.items[i];
                     if (sub.session == null) {
                         // we publish everything, without passing a session value
-                        // std.debug.print("calling the publish callback for topic {s} on stream {d}\n", .{ topic, sub.stream.handle });
                         @call(.auto, sub.action, .{ self.app, sub.stream, null }) catch |err| {
                             try dead_streams.append(self.gpa, sub.stream);
-                            std.debug.print(" 💀 Stream {d} to be removed because {}\n", .{ sub.stream.handle, err });
+                            std.debug.print(" 💀 Stream {*} to be removed because {}\n", .{ sub.stream, err });
+
+                            const netStream: *Io.net.Stream.Writer = @fieldParentPtr("interface", sub.stream);
+                            std.debug.print("got the parent stream, with handle {d}\n", .{netStream.stream.socket.handle});
                         };
                     } else {
                         if (session) |sv| {
                             // only publish subs where the session value matches what we ask for
                             if (sub.session) |ss| {
                                 if (std.mem.eql(u8, sv, ss)) {
-                                    // std.debug.print("calling the publish callback for topic {s} on stream {d} with session {s}\n", .{ topic, sub.stream.handle, ss });
                                     @call(.auto, sub.action, .{ self.app, sub.stream, ss }) catch |err| {
                                         if (sub.session) |subsession| self.gpa.free(subsession);
                                         try dead_streams.append(self.gpa, sub.stream);
-                                        std.debug.print(" 💀 Stream {d} to be removed because {}\n", .{ sub.stream.handle, err });
+                                        std.debug.print(" 💀 Stream {*} to be removed because {}\n", .{ sub.stream, err });
                                     };
                                 }
                             }
                         } else {
                             // publish all
-                            // std.debug.print("calling the publish callback for topic {s} on stream {d} with session {?s}\n", .{ topic, sub.stream.handle, sub.session });
                             @call(.auto, sub.action, .{ self.app, sub.stream, sub.session }) catch |err| {
                                 if (sub.session) |subsession| self.gpa.free(subsession);
                                 try dead_streams.append(self.gpa, sub.stream);
-                                std.debug.print(" 💀 Stream {d} to be removed because {}\n", .{ sub.stream.handle, err });
+                                std.debug.print(" 💀 Stream {*} to be removed because {}\n", .{ sub.stream, err });
                             };
                         }
                     }
@@ -697,7 +720,181 @@ pub fn Subscribers(comptime T: type) type {
 
 pub fn Callback(comptime ctx: type) type {
     if (ctx == void) {
-        return *const fn (std.Io.net.Stream) anyerror!void;
+        return *const fn (*Io.Writer) anyerror!void;
     }
-    return *const fn (ctx, std.Io.net.Stream, SessionType) anyerror!void;
+    return *const fn (ctx, *Io.Writer, SessionType) anyerror!void;
+}
+
+test "PatchElementsOptions default values" {
+    const opts = PatchElementsOptions{};
+    try std.testing.expectEqual(PatchMode.outer, opts.mode);
+    try std.testing.expect(opts.selector == null);
+    try std.testing.expect(opts.view_transition == false);
+    try std.testing.expect(opts.event_id == null);
+    try std.testing.expect(opts.retry_duration == null);
+    try std.testing.expectEqual(NameSpace.html, opts.namespace);
+}
+
+test "PatchSignalsOptions default values" {
+    const opts = PatchSignalsOptions{};
+    try std.testing.expect(opts.only_if_missing == false);
+    try std.testing.expect(opts.event_id == null);
+    try std.testing.expect(opts.retry_duration == null);
+}
+
+test "ExecuteScriptOptions default values" {
+    const opts = ExecuteScriptOptions{};
+    try std.testing.expect(opts.auto_remove == true);
+    try std.testing.expect(opts.attributes == null);
+    try std.testing.expect(opts.event_id == null);
+    try std.testing.expect(opts.retry_duration == null);
+}
+
+test "SSEOptions default values" {
+    const opts = SSEOptions{};
+    try std.testing.expectEqual(DEFAULT_BUFFER_SIZE, opts.buffer_size);
+    try std.testing.expect(opts.sync == false);
+}
+
+test "Command enum values" {
+    try std.testing.expect(@typeInfo(Command) == .@"enum");
+    const cmd1: Command = .patchElements;
+    const cmd2: Command = .patchSignals;
+    const cmd3: Command = .executeScript;
+
+    try std.testing.expect(cmd1 != cmd2);
+    try std.testing.expect(cmd2 != cmd3);
+    try std.testing.expect(cmd1 != cmd3);
+}
+
+test "PatchMode enum values" {
+    const modes = [_]PatchMode{
+        .inner,
+        .outer,
+        .replace,
+        .prepend,
+        .append,
+        .before,
+        .after,
+        .remove,
+    };
+
+    // Just verify all modes are distinct
+    for (modes, 0..) |mode1, i| {
+        for (modes[i + 1 ..]) |mode2| {
+            try std.testing.expect(mode1 != mode2);
+        }
+    }
+}
+
+test "NameSpace enum values" {
+    try std.testing.expectEqual(NameSpace.html, NameSpace.html);
+    try std.testing.expectEqual(NameSpace.svg, NameSpace.svg);
+    try std.testing.expectEqual(NameSpace.mathml, NameSpace.mathml);
+
+    try std.testing.expect(NameSpace.html != NameSpace.svg);
+    try std.testing.expect(NameSpace.svg != NameSpace.mathml);
+}
+
+test "Callback type with void context" {
+    const CallbackVoid = Callback(void);
+    const info = @typeInfo(CallbackVoid);
+
+    try std.testing.expect(info == .Pointer);
+    const fn_info = @typeInfo(info.Pointer.child).Fn;
+    // Should have 1 parameter (just the stream)
+    try std.testing.expectEqual(1, fn_info.params.len);
+}
+
+test "Callback type with App context" {
+    const App = struct { count: usize };
+    const CallbackApp = Callback(*App);
+    const info = @typeInfo(CallbackApp);
+
+    try std.testing.expect(info == .Pointer);
+    const fn_info = @typeInfo(info.Pointer.child).Fn;
+    // Should have 3 parameters (context, stream, session)
+    try std.testing.expectEqual(3, fn_info.params.len);
+}
+
+test "Subscribers can be initialized and deinitialized" {
+    const App = struct { value: i32 };
+    var app = App{ .value = 42 };
+
+    var subs = try Subscribers(*App).init(std.testing.allocator, &app);
+    defer subs.deinit();
+
+    try std.testing.expectEqual(&app, subs.app);
+    try std.testing.expectEqual(0, subs.subs.count());
+    try std.testing.expectEqual(0, subs.stream_topics.count());
+}
+
+test "Message.init sets correct command and options for patchElements" {
+    var buffer: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    var writer = fbs.writer().any();
+
+    var msg: Message = undefined;
+    const opts = PatchElementsOptions{ .mode = .inner, .selector = "#test" };
+    msg.init(.patchElements, opts, &writer);
+
+    try std.testing.expectEqual(Command.patchElements, msg.command);
+    try std.testing.expectEqual(PatchMode.inner, msg.patch_element_options.mode);
+    try std.testing.expectEqualStrings("#test", msg.patch_element_options.selector.?);
+}
+
+test "Message.init sets correct command and options for patchSignals" {
+    var buffer: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    var writer = fbs.writer().any();
+
+    var msg: Message = undefined;
+    const opts = PatchSignalsOptions{ .only_if_missing = true };
+    msg.init(.patchSignals, opts, &writer);
+
+    try std.testing.expectEqual(Command.patchSignals, msg.command);
+    try std.testing.expect(msg.patch_signal_options.only_if_missing);
+}
+
+test "Message.init sets correct command and options for executeScript" {
+    var buffer: [1024]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    var writer = fbs.writer().any();
+
+    var msg: Message = undefined;
+    const opts = ExecuteScriptOptions{ .auto_remove = false };
+    msg.init(.executeScript, opts, &writer);
+
+    try std.testing.expectEqual(Command.executeScript, msg.command);
+    try std.testing.expect(!msg.execute_script_options.auto_remove);
+}
+
+test "ScriptAttributes can store key-value pairs" {
+    var attrs = ScriptAttributes.init(std.testing.allocator);
+    defer attrs.deinit();
+
+    try attrs.put("type", "module");
+    try attrs.put("async", "true");
+
+    try std.testing.expectEqual(2, attrs.count());
+    try std.testing.expectEqualStrings("module", attrs.get("type").?);
+    try std.testing.expectEqualStrings("true", attrs.get("async").?);
+}
+
+test "PatchElementsOptions with custom values" {
+    const opts = PatchElementsOptions{
+        .mode = .inner,
+        .selector = "#content",
+        .view_transition = true,
+        .event_id = "evt-123",
+        .retry_duration = 5000,
+        .namespace = .svg,
+    };
+
+    try std.testing.expectEqual(PatchMode.inner, opts.mode);
+    try std.testing.expectEqualStrings("#content", opts.selector.?);
+    try std.testing.expect(opts.view_transition);
+    try std.testing.expectEqualStrings("evt-123", opts.event_id.?);
+    try std.testing.expectEqual(5000, opts.retry_duration.?);
+    try std.testing.expectEqual(NameSpace.svg, opts.namespace);
 }
