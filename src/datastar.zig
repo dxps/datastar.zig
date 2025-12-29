@@ -61,8 +61,7 @@ pub const SSEOptions = struct {
 };
 
 pub const SSE = struct {
-    stream: ?*std.http.BodyWriter = null,
-    final_out: *Io.Writer,
+    stream: *std.http.BodyWriter,
     output_buffer: Io.Writer.Allocating,
     msg: ?Message = null,
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
@@ -77,22 +76,10 @@ pub const SSE = struct {
     pub fn flush(self: *SSE) !void {
         if (self.msg) |*msg| try msg.end();
         const data = self.output_buffer.written();
-        if (data.len == 0) return;
 
-        if (self.stream) |stream| {
-            // write to the bodyWriter, on flush this gets chunked and forwarded to the final_output
-            try stream.writer.writeAll(data);
-            try stream.writer.flush();
-            if (self.sync) {
-                try self.final_out.flush();
-            }
-        } else {
-            // there is no bodyWriter - so we output straight to the final_output instead, and wrap it in a chunk
-            try self.final_out.print("{x}\r\n", .{data.len});
-            try self.final_out.writeAll(data);
-            try self.final_out.writeAll("\r\n");
-            try self.final_out.flush();
-        }
+        // write to the bodyWriter, on flush this gets chunked and forwarded to the final_output
+        try self.stream.writer.writeAll(data);
+        try self.stream.writer.flush();
         _ = self.output_buffer.writer.consume(data.len);
     }
 
@@ -100,10 +87,8 @@ pub const SSE = struct {
     /// on close(), this will populate the response body the call res.write()
     /// which will output both the header and the body using async IO
     pub fn close(self: *SSE) void {
-        if (self.stream) |stream| {
-            stream.writer.writeAll(self.body()) catch {};
-            stream.end() catch {};
-        }
+        self.stream.writer.writeAll(self.body()) catch {};
+        self.stream.end() catch {};
     }
 
     pub fn writer(self: *Message) ?*Io.Writer {
@@ -146,7 +131,7 @@ pub const SSE = struct {
         if (self.msg) |*msg| {
             msg.swapTo(.patchElements, opt);
         } else {
-            self.msg = .default();
+            self.msg = .{};
             self.msg.?.init(.patchElements, opt, &self.output_buffer.writer);
         }
         return &self.msg.?.interface;
@@ -167,9 +152,8 @@ pub const SSE = struct {
         if (self.msg) |*msg| {
             msg.swapTo(.patchSignals, opt);
         } else {
-            var msg: Message = undefined;
-            msg.init(.patchSignals, opt, &self.output_buffer.writer);
-            self.msg = msg;
+            self.msg = .{};
+            self.msg.?.init(.patchSignals, opt, &self.output_buffer.writer);
         }
         return &self.msg.?.interface;
     }
@@ -200,9 +184,8 @@ pub const SSE = struct {
         if (self.msg) |*msg| {
             msg.swapTo(.executeScript, opt);
         } else {
-            var msg: Message = undefined;
-            msg.init(.executeScript, opt, &self.output_buffer.writer);
-            self.msg = msg;
+            self.msg = .{};
+            self.msg.?.init(.executeScript, opt, &self.output_buffer.writer);
         }
         return &self.msg.?.interface;
     }
@@ -234,23 +217,23 @@ pub fn NewSSEOpt(http: HTTPRequest, opt: SSEOptions) !SSE {
         break :blk Io.Writer.Allocating.initCapacity(http.arena, opt.buffer_size) catch Io.Writer.Allocating.init(http.arena);
     };
     if (opt.sync) {
+        std.debug.print("Flushing the response header now !!\n", .{});
         try res.flush();
+        try http.req.server.out.flush();
     }
 
     return SSE{
         .stream = res,
-        .final_out = http.req.server.out,
         .output_buffer = allocating_writer,
         .buffer_size = opt.buffer_size,
         .sync = opt.sync,
     };
 }
 
-pub fn NewSSEFromStream(stream: *Io.Writer, allocator: std.mem.Allocator) SSE {
+pub fn NewSSEFromStream(stream: *std.http.BodyWriter, allocator: std.mem.Allocator) SSE {
     const allocating_writer = Io.Writer.Allocating.initCapacity(allocator, 8 * 1024) catch Io.Writer.Allocating.init(allocator);
     return SSE{
-        .stream = null,
-        .final_out = stream,
+        .stream = stream,
         .output_buffer = allocating_writer,
         .buffer_size = 0,
         .sync = true,
@@ -259,7 +242,7 @@ pub fn NewSSEFromStream(stream: *Io.Writer, allocator: std.mem.Allocator) SSE {
 }
 
 pub const Message = struct {
-    out_buffer: *Io.Writer, // an intermediate buffer to write the expanded Datastar event stream to
+    out_buffer: *Io.Writer = undefined, // an intermediate buffer to write the expanded Datastar event stream to
     input_buffer: [8 * 1024]u8 = undefined,
     started: bool = false,
     command: Command = .patchElements,
@@ -269,11 +252,7 @@ pub const Message = struct {
     execute_script_options: ExecuteScriptOptions = .{},
 
     line_in_progress: bool = false,
-    interface: Io.Writer,
-
-    fn default() Message {
-        return undefined;
-    }
+    interface: Io.Writer = undefined,
 
     fn init(m: *Message, comptime command: Command, opt: anytype, out_buffer: *Io.Writer) void {
         m.out_buffer = out_buffer;
@@ -461,7 +440,7 @@ pub const Message = struct {
 };
 
 const SessionType = ?[]const u8;
-const StreamList = std.ArrayList(*Io.Writer);
+const StreamList = std.ArrayList(*std.http.BodyWriter);
 
 pub fn Subscribers(comptime T: type) type {
     return struct {
@@ -473,7 +452,7 @@ pub fn Subscribers(comptime T: type) type {
 
         const Self = @This();
         const Subscription = struct {
-            stream: *Io.Writer,
+            stream: *std.http.BodyWriter,
             action: Callback(T),
             session: SessionType = null,
         };
@@ -482,7 +461,7 @@ pub fn Subscribers(comptime T: type) type {
         const Subscriptions = std.StringHashMap(std.ArrayList(Subscription));
 
         // A map of which topics each stream is subscribed to, for quick lookup by stream
-        const StreamTopicMap = std.AutoHashMap(*Io.Writer, std.ArrayList([]const u8));
+        const StreamTopicMap = std.AutoHashMap(*std.http.BodyWriter, std.ArrayList([]const u8));
 
         pub fn init(gpa: Allocator, ctx: T) !Self {
             return .{
@@ -541,15 +520,19 @@ pub fn Subscribers(comptime T: type) type {
             }
         }
 
-        pub fn subscribe(self: *Self, topic: []const u8, stream: *Io.Writer, func: Callback(T)) !void {
+        pub fn subscribe(self: *Self, topic: []const u8, stream: *std.http.BodyWriter, func: Callback(T)) !void {
             return self.subscribeSession(topic, stream, func, null);
         }
 
-        pub fn subscribeSession(self: *Self, topic: []const u8, stream: *Io.Writer, func: Callback(T), session: SessionType) !void {
+        pub fn subscribeSession(self: *Self, topic: []const u8, stream: *std.http.BodyWriter, func: Callback(T), session: SessionType) !void {
+            std.debug.print("start SS lock\n", .{});
             self.mutex.lock();
+            std.debug.print("end SS locked\n", .{});
             defer {
                 self.debugState("after subscribe session");
+                std.debug.print("start unlock SS\n", .{});
                 self.mutex.unlock();
+                std.debug.print("end unlock SS\n", .{});
             }
 
             // purge it first ?
@@ -660,14 +643,18 @@ pub fn Subscribers(comptime T: type) type {
         }
 
         pub fn publishSession(self: *Self, topic: []const u8, session: SessionType) !void {
+            std.debug.print("start PS lock\n", .{});
             self.mutex.lock();
+            std.debug.print("end PS lock\n", .{});
             var dead_streams: StreamList = .empty;
             defer {
                 if (dead_streams.items.len > 0) {
                     self.purge(dead_streams);
                 }
                 dead_streams.deinit(self.gpa);
+                std.debug.print("start PS unlock\n", .{});
                 self.mutex.unlock();
+                std.debug.print("end PS unlock\n", .{});
             }
 
             // std.debug.print("publish on topic {s} for session {?s}\n", .{ topic, session });
@@ -682,9 +669,6 @@ pub fn Subscribers(comptime T: type) type {
                         @call(.auto, sub.action, .{ self.app, sub.stream, null }) catch |err| {
                             try dead_streams.append(self.gpa, sub.stream);
                             std.debug.print(" 💀 Stream {*} to be removed because {}\n", .{ sub.stream, err });
-
-                            const netStream: *Io.net.Stream.Writer = @fieldParentPtr("interface", sub.stream);
-                            std.debug.print("got the parent stream, with handle {d}\n", .{netStream.stream.socket.handle});
                         };
                     } else {
                         if (session) |sv| {
@@ -720,9 +704,9 @@ pub fn Subscribers(comptime T: type) type {
 
 pub fn Callback(comptime ctx: type) type {
     if (ctx == void) {
-        return *const fn (*Io.Writer) anyerror!void;
+        return *const fn (*std.http.BodyWriter) anyerror!void;
     }
-    return *const fn (ctx, *Io.Writer, SessionType) anyerror!void;
+    return *const fn (ctx, *std.http.BodyWriter, SessionType) anyerror!void;
 }
 
 test "PatchElementsOptions default values" {
