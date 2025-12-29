@@ -1,61 +1,38 @@
 const std = @import("std");
-const httpz = @import("httpz");
-const logz = @import("logz");
 const datastar = @import("datastar");
 const Allocator = std.mem.Allocator;
+const Io = std.Io;
 
 const PORT = 7331;
+
+const HTTPRequest = datastar.HTTPRequest;
 
 // Run Datastar validation test suite backend in Zig
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     const allocator = gpa.allocator();
 
-    var server = try httpz.Server(void).init(allocator, .{
-        .port = PORT,
-        .address = "0.0.0.0",
-        .thread_pool = .{
-            .count = 1,
-            .backlog = 1,
-            .buffer_size = 512,
-        },
-        .request = .{
-            .buffer_size = 8196,
-        },
-    }, {});
-    defer {
-        // clean shutdown
-        server.stop();
-        server.deinit();
-    }
+    var threaded: Io.Threaded = .init(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
 
-    // initialize a logging pool
-    try logz.setup(allocator, .{
-        .level = .Info,
-        .pool_size = 1,
-        .buffer_size = 256,
-        .large_buffer_count = 1,
-        .large_buffer_size = 512,
-        .output = .stdout,
-        .encoding = .logfmt,
-    });
-    defer logz.deinit();
+    var server = try datastar.Server(void).init(io, allocator, "0.0.0.0", PORT);
+    defer server.deinit();
 
-    var router = try server.router(.{});
+    var r = server.router;
 
-    router.get("/", index, .{});
-    router.get("/test", runTest, .{}); // get will use the query params
-    router.post("/test", runTest, .{}); // post will use the request body
+    r.get("/", index);
+    r.get("/test", runTest); // get will use the query params
+    r.post("/test", runTest); // post will use the request body
 
-    std.debug.print("Zig SDK Validation Test listening on http://localhost:{d}/\n", .{PORT});
-    try server.listen();
+    try server.run();
 }
 
-fn index(_: *httpz.Request, res: *httpz.Response) !void {
-    res.body =
+fn index(http: HTTPRequest) !void {
+    try http.html(
         \\See the docs at https://github.com/starfederation/datastar/blob/develop/sdk/tests/README.md
         \\to run the official Datastar SDK test validator against this test suite
-    ;
+    );
 }
 
 /// Data mapping for how test cases are passed in
@@ -91,50 +68,33 @@ const TestEventAttribute = struct {
     blocking: ?[]const u8 = null,
 };
 
-fn runTest(req: *httpz.Request, res: *httpz.Response) !void {
-    const t1 = std.time.microTimestamp();
-    defer {
-        const t2 = std.time.microTimestamp();
-        logz.info()
-            .string("event", "runTest")
-            .string("method", req.method_string)
-            .int("elapsed (μs)", t2 - t1)
-            .log();
-        std.debug.print("===========================================\n", .{});
-    }
-
+fn runTest(http: HTTPRequest) !void {
     // Debug the input packet
-    switch (req.method) {
+    switch (http.req.head.method) {
         .GET => {
-            const query = try req.query();
-            const params = query.get("datastar") orelse return error.MissingDatastarKey;
-            std.debug.print("GET params:\n{s}\n", .{params});
+            std.debug.print("GET {s}\n", .{http.req.head.target});
+            // const query = try http.query();
+            // std.debug.print("GET params:\n{s}\n", .{query});
         },
         .POST => {
-            if (req.body_buffer) |payload| {
-                std.debug.print("POST body:\n{s}\n", .{payload.data});
-            } else {
-                std.debug.print("Invalid POST with no body data\n", .{});
-                res.status = 400;
-                return;
-            }
+            std.debug.print("GET {s} {?} bytes\n", .{ http.req.head.target, http.req.head.content_length });
+            _ = http.req.head.content_length orelse return error.MissingContentLength;
         },
         else => {
-            std.debug.print("Invalid test HTTP method {s}\n", .{req.method_string});
-            res.status = 400;
+            std.debug.print("Invalid test HTTP method {t}\n", .{http.req.head.method});
+            try http.req.respond("Invalid test HTTP method", .{ .status = .bad_request });
             return;
         },
     }
 
     // read the TestInput params
-    const testInput = try datastar.readSignals(TestInput, req);
-    // std.debug.print("Decoded TestInput: {any}\n", .{testInput});
+    const testInput = try http.readSignals(TestInput);
 
-    var sse = try datastar.NewSSE(req, res);
-    defer sse.close(res);
+    var sse = try datastar.NewSSE(http);
+    defer sse.close();
 
     if (testInput.events.len < 1) {
-        res.status = 400;
+        try http.req.respond("Empty Test Input", .{ .status = .bad_request });
         std.debug.print("Empty Test Input\n", .{});
         return;
     }
@@ -144,7 +104,7 @@ fn runTest(req: *httpz.Request, res: *httpz.Response) !void {
 
         if (std.mem.eql(u8, event.type, "patchElements")) {
             if (event.elements == null and event.selector == null) {
-                res.status = 400;
+                try http.req.respond("PatchElements needs at least 1 of element or selector", .{ .status = .bad_request });
                 std.debug.print("PatchElements needs at least 1 of element, or selector\n", .{});
                 return;
             }
@@ -155,7 +115,7 @@ fn runTest(req: *httpz.Request, res: *httpz.Response) !void {
                         if (std.meta.stringToEnum(datastar.PatchMode, mode)) |parsed_mode| {
                             break :blk parsed_mode;
                         } else {
-                            res.status = 400;
+                            try http.req.respond("Invalid PatchElements mode", .{ .status = .bad_request });
                             std.debug.print("Invalid patchElements mode '{s}'\n", .{mode});
                             return;
                         }
@@ -171,7 +131,7 @@ fn runTest(req: *httpz.Request, res: *httpz.Response) !void {
                         if (std.meta.stringToEnum(datastar.NameSpace, ns)) |parsed_namespace| {
                             break :blk parsed_namespace;
                         } else {
-                            res.status = 400;
+                            try http.req.respond("Invalid PatchElements namespace", .{ .status = .bad_request });
                             std.debug.print("Invalid patchElements namespace '{s}'\n", .{ns});
                             return;
                         }
@@ -240,7 +200,7 @@ fn runTest(req: *httpz.Request, res: *httpz.Response) !void {
                     .retry_duration = event.retryDuration,
                 });
             } else {
-                res.status = 400;
+                try http.req.respond("executeScript is missing the script param", .{ .status = .bad_request });
                 std.debug.print("executeScript is missing the script param\n", .{});
                 return;
             }

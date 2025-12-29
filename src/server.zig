@@ -54,7 +54,7 @@ pub fn Server(comptime Context: type) type {
 
             while (true) {
                 var request = server.receiveHead() catch |err| {
-                    std.debug.print("Error reading header on stream {} IoWriter {*}:{}\n", .{ conn.socket.handle, &writer.interface, err });
+                    // std.debug.print("Error reading header on stream {} IoWriter {*}:{}\n", .{ conn.socket.handle, &writer.interface, err });
                     if (err == error.HttpConnectionClosing) break;
                     return;
                 };
@@ -125,6 +125,12 @@ pub const HTTPRequest = struct {
 
         try std.json.Stringify.value(data, .{}, &body_writer.writer);
         try body_writer.end();
+    }
+
+    pub fn query(self: Self) ![]const u8 {
+        const target = self.req.head.target;
+        const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
+        return target[query_idx + 1 ..];
     }
 
     pub fn readSignals(self: Self, comptime T: type) !T {
@@ -303,11 +309,11 @@ pub fn Router(comptime Context: type) type {
             current.handlers[@intFromEnum(method)] = handler;
         }
 
-        pub fn dispatch(self: *Self, ctx: ?Context, http_req: *HTTPRequest) !void {
+        pub fn dispatch(self: *Self, ctx: ?Context, http: *HTTPRequest) !void {
             var params = Params{};
             var current = self.root;
 
-            const target = http_req.req.head.target;
+            const target = http.req.head.target;
             const query_index = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
             const path_only = target[0..query_index];
 
@@ -327,24 +333,24 @@ pub fn Router(comptime Context: type) type {
                         break;
                     }
                 }
-                if (match) |m| current = m else return http_req.req.respond("", .{ .status = .not_found });
+                if (match) |m| current = m else return http.req.respond("", .{ .status = .not_found });
             }
 
-            http_req.params = params;
+            http.params = params;
 
-            const method_idx = @intFromEnum(http_req.req.head.method);
+            const method_idx = @intFromEnum(http.req.head.method);
             if (current.handlers[method_idx]) |h| {
                 if (Context == void) {
-                    return h(http_req.*);
+                    return h(http.*);
                 } else {
                     if (ctx) |c| {
-                        return h(c, http_req.*);
+                        return h(c, http.*);
                     }
                     return error.NoContext;
                 }
             }
 
-            return http_req.req.respond("Method Not Allowed", .{ .status = .method_not_allowed });
+            return http.req.respond("Method Not Allowed", .{ .status = .method_not_allowed });
         }
     };
 }
