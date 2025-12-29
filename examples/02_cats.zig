@@ -62,7 +62,7 @@ pub const App = struct {
 
     // convenience function
     pub fn subscribe(app: *App, topic: []const u8, sse: datastar.SSE, callback: anytype) !void {
-        try app.subscribers.subscribe(topic, sse.final_out, callback);
+        try app.subscribers.subscribe(topic, sse.stream, callback);
     }
 
     // convenience function
@@ -70,7 +70,7 @@ pub const App = struct {
         try app.subscribers.publish(topic);
     }
 
-    pub fn publishCatList(app: *App, stream: *std.Io.Writer, _: ?[]const u8) !void {
+    pub fn publishCatList(app: *App, stream: *std.http.BodyWriter, _: ?[]const u8) !void {
         var sse = datastar.NewSSEFromStream(stream, app.gpa);
         defer sse.deinit();
 

@@ -49,8 +49,15 @@ fn catsList(app: *App, http: HTTPRequest) !void {
     app.mutex.lock();
     defer app.mutex.unlock();
 
-    const sse = try datastar.NewSSESync(http);
+    var sse = try datastar.NewSSESync(http);
     try app.subscribe("cats", sse, App.publishCatList);
+
+    // put this in a forever loop outputting keepalive pings
+    while (true) {
+        try http.io.sleep(.fromSeconds(10), .real);
+        std.debug.print("catList keepalive\n", .{});
+        try sse.patchElements("<keepalive />", .{});
+    }
 }
 
 fn postBid(app: *App, http: HTTPRequest) !void {
