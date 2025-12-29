@@ -4,7 +4,7 @@ const opts = struct {
     morph: []const u8,
 };
 
-const signals = try datastar.readSignals(opts, req);
+const signals = try http.readSignals(opts);
 // jump out if we didnt set anything
 if (signals.morph.len < 1) {
     return;

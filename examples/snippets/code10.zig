@@ -5,7 +5,7 @@ const MathMorphOptions = struct {
     mathmlMorph: usize = 1,
 };
 const opt = blk: {
-    break :blk datastar.readSignals(MathMorphOptions, req) catch break :blk MathMorphOptions{ .mathmlMorph = 1 };
+    break :blk http.readSignals(MathMorphOptions) catch break :blk MathMorphOptions{ .mathmlMorph = 1 };
 };
 var sse = try datastar.NewSSESync(http);
 defer sse.close();

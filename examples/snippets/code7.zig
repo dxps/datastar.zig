@@ -1,6 +1,6 @@
 == patchSignalsRemove handler ==
 
-const signals_to_remove: []const u8 = req.param("names").?;
+const signals_to_remove: []const u8 = http.params.get("names").?;
 var names_iter = std.mem.splitScalar(u8, signals_to_remove, ',');
 
 var sse = try datastar.NewSSE(http);
