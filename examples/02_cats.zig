@@ -60,20 +60,7 @@ pub const App = struct {
         app.gpa.destroy(app);
     }
 
-    // convenience function
-    pub fn subscribe(app: *App, topic: []const u8, sse: datastar.SSE, callback: anytype) !void {
-        try app.subscribers.subscribe(topic, sse.stream, callback);
-    }
-
-    // convenience function
-    pub fn publish(app: *App, topic: []const u8) !void {
-        try app.subscribers.publish(topic);
-    }
-
-    pub fn publishCatList(app: *App, stream: *std.http.BodyWriter, _: ?[]const u8) !void {
-        var sse = datastar.NewSSEFromStream(stream, app.gpa);
-        defer sse.deinit();
-
+    pub fn publishCatList(app: *App, sse: *datastar.SSE, _: ?[]const u8) !void {
         var w = sse.patchElementsWriter(.{});
         try w.print(
             \\<div id="cat-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-4 h-full" data-signals="{{ bids: [{d},{d},{d},{d},{d},{d}] }}">
@@ -88,11 +75,11 @@ pub const App = struct {
 
         for (app.cats.items) |cat| {
             try cat.render(w);
-            try w.flush();
         }
         try w.writeAll(
             \\</div>
         );
+        try sse.flush();
     }
 };
 

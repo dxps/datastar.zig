@@ -46,22 +46,23 @@ fn index(app: *App, http: HTTPRequest) !void {
 }
 
 fn catsList(app: *App, http: HTTPRequest) !void {
-    app.mutex.lock();
-    defer app.mutex.unlock();
-
+    var subs = app.subscribers;
     var sse = try datastar.NewSSESync(http);
-    try app.subscribe("cats", sse, App.publishCatList);
 
-    // put this in a forever loop outputting keepalive pings
-    while (true) {
-        try http.io.sleep(.fromSeconds(10), .real);
-        std.debug.print("catList keepalive\n", .{});
-        try sse.patchElements("<keepalive />", .{});
+    {
+        app.mutex.lock();
+        defer app.mutex.unlock();
+        try subs.subscribe("cats", &sse, App.publishCatList);
     }
+
+    sse.keepalive(http.io);
+    subs.unsubscribe(&sse);
 }
 
 fn postBid(app: *App, http: HTTPRequest) !void {
+    std.debug.print("POST /bid\n", .{});
     app.mutex.lock();
+    std.debug.print("POST /bid locked app\n", .{});
     defer app.mutex.unlock();
 
     const id_param = http.params.get("id") orelse "0";
@@ -81,5 +82,5 @@ fn postBid(app: *App, http: HTTPRequest) !void {
     app.cats.items[id].bid = new_bid;
 
     // update any screens subscribed to "cats"
-    try app.publish("cats");
+    try app.subscribers.publish("cats");
 }

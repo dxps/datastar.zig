@@ -13,7 +13,8 @@ pub fn Server(comptime Context: type) type {
         ctx: ?Context = null,
 
         pub fn init(io: Io, allocator: Allocator, addr: []const u8, port: u16) !Self {
-            const address = try Io.net.IpAddress.parseIp4(addr, port);
+            _ = addr;
+            const address = try Io.net.IpAddress.parseIp6("::", port);
             const server = try address.listen(io, .{ .reuse_address = true });
             return .{
                 .io = io,
@@ -53,11 +54,13 @@ pub fn Server(comptime Context: type) type {
             var server = std.http.Server.init(&reader.interface, &writer.interface);
 
             while (true) {
+                std.debug.print("start recvHeader on socket {}\n", .{conn.socket.handle});
                 var request = server.receiveHead() catch |err| {
-                    // std.debug.print("Error reading header on stream {} IoWriter {*}:{}\n", .{ conn.socket.handle, &writer.interface, err });
+                    std.debug.print("Error reading header on stream {} IoWriter {*}:{}\n", .{ conn.socket.handle, &writer.interface, err });
                     if (err == error.HttpConnectionClosing) break;
                     return;
                 };
+                std.debug.print("end recvHeader on socket {}\n", .{conn.socket.handle});
 
                 var arena: std.heap.ArenaAllocator = .init(self.allocator);
                 defer arena.deinit();
