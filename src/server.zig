@@ -13,7 +13,18 @@ pub fn Server(comptime Context: type) type {
         ctx: ?Context = null,
 
         pub fn init(io: Io, allocator: Allocator, addr: []const u8, port: u16) !Self {
-            _ = addr;
+            const address = try Io.net.IpAddress.parseIp4(addr, port);
+            const server = try address.listen(io, .{ .reuse_address = true });
+            return .{
+                .io = io,
+                .allocator = allocator,
+                .server = server,
+                .router = try Router(Context).init(allocator),
+                .ctx = null,
+            };
+        }
+
+        pub fn initIp6(io: Io, allocator: Allocator, port: u16) !Self {
             const address = try Io.net.IpAddress.parseIp6("::", port);
             const server = try address.listen(io, .{ .reuse_address = true });
             return .{
@@ -45,6 +56,8 @@ pub fn Server(comptime Context: type) type {
                 conn.close(self.io);
             }
 
+            std.debug.print("*** new connection on socket {}\n", .{conn.socket.handle});
+
             var read_buffer: [4096]u8 = undefined;
             var write_buffer: [4096]u8 = undefined;
 
@@ -54,13 +67,13 @@ pub fn Server(comptime Context: type) type {
             var server = std.http.Server.init(&reader.interface, &writer.interface);
 
             while (true) {
-                std.debug.print("start recvHeader on socket {}\n", .{conn.socket.handle});
+                std.debug.print("*** waiting for new request on socket {}\n", .{conn.socket.handle});
                 var request = server.receiveHead() catch |err| {
-                    std.debug.print("Error reading header on stream {} IoWriter {*}:{}\n", .{ conn.socket.handle, &writer.interface, err });
+                    std.debug.print("*** recvHead error on stream {} IoWriter {*}:{}\n", .{ conn.socket.handle, &writer.interface, err });
                     if (err == error.HttpConnectionClosing) break;
                     return;
                 };
-                std.debug.print("end recvHeader on socket {}\n", .{conn.socket.handle});
+                std.debug.print("*** end recvHeader on socket {}\n", .{conn.socket.handle});
 
                 var arena: std.heap.ArenaAllocator = .init(self.allocator);
                 defer arena.deinit();
@@ -73,8 +86,65 @@ pub fn Server(comptime Context: type) type {
                 };
 
                 self.router.dispatch(self.ctx, &http) catch |err| {
-                    std.debug.print("Routing error: {}\n", .{err});
+                    std.debug.print("Dispatch error {} on socket {}\n", .{ err, conn.socket.handle });
                 };
+
+                // Anything asking for a Sync SSE connection will detach the request from this inner loop
+                // this is because any SSE created over this connection will be treated as the last action
+                // in this connection. The trigger for the browser is text/event-stream + chunked encoding
+                if (http.detach) break;
+            }
+        }
+
+        pub fn rebooter(self: *Self) !void {
+            _ = try self.io.concurrent(Self.watchLoop, .{self});
+        }
+
+        fn watchLoop(self: *Self) !void {
+            const cwd = std.fs.cwd();
+
+            var initial_inode: u64 = 0;
+            var initial_mtime: Io.Timestamp = .zero;
+            const path = try std.fs.selfExePathAlloc(self.allocator);
+            defer self.allocator.free(path);
+
+            // wait around till the inital inode is available
+            while (true) {
+                const stat = cwd.statFile(path) catch {
+                    try self.io.sleep(.fromSeconds(2), .real);
+                    continue;
+                };
+                initial_inode = stat.inode;
+                initial_mtime = stat.mtime;
+                break;
+            }
+
+            while (true) {
+                try self.io.sleep(.fromSeconds(2), .real);
+
+                const stat = cwd.statFile(path) catch |err| {
+                    std.debug.print("Path {s} failed to stat(): {}\n", .{ path, err });
+                    continue;
+                };
+
+                const inode_changed = (stat.inode != initial_inode);
+                const mtime_changed = (stat.mtime.toMilliseconds() > initial_mtime.toMilliseconds());
+
+                if (inode_changed or mtime_changed) {
+                    std.debug.print("Binary Changed - Reboot ♻️\n", .{});
+
+                    const args = try std.process.argsAlloc(self.allocator);
+                    const self_path = try std.fs.selfExePathAlloc(self.allocator);
+
+                    var exec_args: std.ArrayList([]const u8) = .empty;
+                    try exec_args.append(self.allocator, self_path);
+
+                    for (args[1..]) |arg| {
+                        try exec_args.append(self.allocator, arg);
+                    }
+
+                    return std.process.execv(self.allocator, exec_args.items);
+                }
             }
         }
     };
@@ -82,9 +152,9 @@ pub fn Server(comptime Context: type) type {
 
 pub fn RouteHandler(comptime Context: type) type {
     if (Context == void) {
-        return *const fn (req: HTTPRequest) anyerror!void;
+        return *const fn (req: *HTTPRequest) anyerror!void;
     } else {
-        return *const fn (ctx: Context, req: HTTPRequest) anyerror!void;
+        return *const fn (ctx: Context, req: *HTTPRequest) anyerror!void;
     }
 }
 
@@ -95,6 +165,7 @@ pub const HTTPRequest = struct {
     io: Io,
     arena: std.mem.Allocator,
     params: Params,
+    detach: bool = false, // detached is set if there is any SSE acting on this request - which stops it looping looking for more requests on the same connection
 
     // return the given data as text/html
     pub fn html(self: Self, data: []const u8) !void {
@@ -316,6 +387,8 @@ pub fn Router(comptime Context: type) type {
             var params = Params{};
             var current = self.root;
 
+            std.debug.print("*** dispatch request for {t} {s} on http {*}\n", .{ http.req.head.method, http.req.head.target, http });
+
             const target = http.req.head.target;
             const query_index = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
             const path_only = target[0..query_index];
@@ -344,10 +417,10 @@ pub fn Router(comptime Context: type) type {
             const method_idx = @intFromEnum(http.req.head.method);
             if (current.handlers[method_idx]) |h| {
                 if (Context == void) {
-                    return h(http.*);
+                    return h(http);
                 } else {
                     if (ctx) |c| {
-                        return h(c, http.*);
+                        return h(c, http);
                     }
                     return error.NoContext;
                 }

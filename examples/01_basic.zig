@@ -1,6 +1,5 @@
 const std = @import("std");
 const datastar = @import("datastar");
-const rebooter = @import("rebooter.zig");
 const HTTPRequest = datastar.HTTPRequest;
 
 const Io = std.Io;
@@ -34,8 +33,6 @@ pub fn main() !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    try rebooter.start(io, allocator);
-
     var server = try HTTPServer.init(io, allocator, "0.0.0.0", PORT);
     defer server.deinit();
 
@@ -63,17 +60,18 @@ pub fn main() !void {
     // router.get("/mathml-morph", mathMorph, .{});
 
     std.debug.print("Server listening on http://localhost:8080\n", .{});
+    try server.rebooter();
     try server.run();
 }
 
-fn index(http: HTTPRequest) !void {
+fn index(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("Index elapsed {}(ns)\n", .{t1.read()});
 
     return http.html(@embedFile("01_index.html"));
 }
 
-fn textHtml(http: HTTPRequest) !void {
+fn textHtml(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("TextHTML elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -84,7 +82,7 @@ fn textHtml(http: HTTPRequest) !void {
     );
 }
 
-fn patchElements(http: HTTPRequest) !void {
+fn patchElements(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchElements elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -103,7 +101,7 @@ fn patchElements(http: HTTPRequest) !void {
 // to update parts of the DOM. It will look for the DOM with the matching ID in the default case
 //
 // Use a variety of patch options for this one
-fn patchElementsOpts(http: HTTPRequest) !void {
+fn patchElementsOpts(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchElementsOpts elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -153,7 +151,7 @@ fn patchElementsOpts(http: HTTPRequest) !void {
 }
 
 // Just reset the options form if it gets ugly
-fn patchElementsOptsReset(http: HTTPRequest) !void {
+fn patchElementsOptsReset(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchElementsOptsReset elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -166,7 +164,7 @@ fn patchElementsOptsReset(http: HTTPRequest) !void {
 }
 
 // update signals using plain old JSON response
-fn jsonSignals(http: HTTPRequest) !void {
+fn jsonSignals(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("jsonSignals elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -177,7 +175,7 @@ fn jsonSignals(http: HTTPRequest) !void {
     try http.json(.{ .fooj = foo, .barj = bar });
 }
 
-fn patchSignals(http: HTTPRequest) !void {
+fn patchSignals(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchSignals elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -194,7 +192,7 @@ fn patchSignals(http: HTTPRequest) !void {
     }, .{}, .{});
 }
 
-fn patchSignalsOnlyIfMissing(http: HTTPRequest) !void {
+fn patchSignalsOnlyIfMissing(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchSignalsOnlyIfMissing elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -217,7 +215,7 @@ fn patchSignalsOnlyIfMissing(http: HTTPRequest) !void {
     try sse.executeScript("console.log('Patched newfoo and newbar, but only if missing');", .{});
 }
 
-fn patchSignalsRemove(http: HTTPRequest) !void {
+fn patchSignalsRemove(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchSignalsOnlyIfMissing elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -257,7 +255,7 @@ const snippets = [_][]const u8{
     @embedFile("snippets/code10.zig"),
 };
 
-fn executeScript(http: HTTPRequest) !void {
+fn executeScript(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("executeScript elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -297,7 +295,7 @@ fn executeScript(http: HTTPRequest) !void {
 }
 
 // output some morphs to the SVG elements using svg namespace
-fn svgMorph(http: HTTPRequest) !void {
+fn svgMorph(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("svgMorph elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -372,7 +370,7 @@ const mathMLs = [_][]const u8{
 };
 
 // output some random MathML
-fn mathMorph(http: HTTPRequest) !void {
+fn mathMorph(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("svgMorph elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
@@ -416,7 +414,7 @@ fn mathMorph(http: HTTPRequest) !void {
     try sse.patchSignals(.{ .mathmlMorph = 1 }, .{}, .{});
 }
 
-fn code(http: HTTPRequest) !void {
+fn code(http: *HTTPRequest) !void {
     const snip = http.params.get("snip") orelse "1";
     const snip_id = try std.fmt.parseInt(u8, snip, 10);
 

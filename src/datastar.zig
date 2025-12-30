@@ -65,7 +65,7 @@ pub const SSE = struct {
     output_buffer: Io.Writer.Allocating,
     msg: ?Message = null,
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
-    sync: bool,
+    sync: bool, // the SSE is operating in sync mode - patches are posted immediately
     chunked: bool = false, // set to true if we want to do the chunking manually ourselves
     mutex: std.Thread.Mutex = .{},
 
@@ -107,7 +107,7 @@ pub const SSE = struct {
     // which will also pickup dead connections for automatic purging
     pub fn keepalive(self: *SSE, io: Io) void {
         var i: u32 = 0;
-        const TICK = 30;
+        const TICK = 2; // 30;
         defer std.debug.print("keepalive terminating at {} on {*}\n", .{ i, self.stream });
         while (true) {
             io.sleep(.fromSeconds(TICK), .real) catch return;
@@ -116,7 +116,6 @@ pub const SSE = struct {
                 self.mutex.lock();
                 defer self.mutex.unlock();
                 self.patchElementsFmt("<keepalive data-time='{}' />", .{i}, .{}) catch return;
-                std.debug.print("keepalive {} on {*}\n", .{ i, self.stream });
             }
         }
     }
@@ -221,17 +220,64 @@ pub const SSE = struct {
     }
 };
 
-pub fn NewSSE(http: HTTPRequest) !SSE {
+pub fn readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T {
+    switch (req.head.method) {
+        .GET => {
+            const target = req.head.target;
+            const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
+            const query_string = target[query_idx + 1 ..];
+
+            var it = std.mem.tokenizeScalar(u8, query_string, '&');
+            while (it.next()) |pair| {
+                if (std.mem.startsWith(u8, pair, "datastar=")) {
+                    const encoded_val = pair["datastar=".len..];
+                    const decoded = try Server.urlDecode(arena, encoded_val);
+
+                    return std.json.parseFromSliceLeaky(
+                        T,
+                        arena,
+                        decoded,
+                        .{ .ignore_unknown_fields = true },
+                    );
+                }
+            }
+            return error.MissingDatastarKey;
+        },
+        else => {
+            const length = req.head.content_length orelse return error.MissingContentLength;
+            const body = try arena.alloc(u8, @intCast(length));
+
+            var reader_buffer: [8192]u8 = undefined;
+            const reader = req.readerExpectNone(&reader_buffer);
+
+            try reader.readSliceAll(body);
+            return std.json.parseFromSliceLeaky(
+                T,
+                arena,
+                body,
+                .{ .ignore_unknown_fields = true },
+            );
+        },
+    }
+}
+pub fn NewSSE(http: *HTTPRequest) !SSE {
     return NewSSEOpt(http, .{});
 }
 
-pub fn NewSSESync(http: HTTPRequest) !SSE {
+pub fn NewSSESync(http: *HTTPRequest) !SSE {
     return NewSSEOpt(http, .{ .sync = true });
 }
 
-pub fn NewSSEOpt(http: HTTPRequest, opt: SSEOptions) !SSE {
+pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
     const buf_size = if (opt.buffer_size != 0) opt.buffer_size else DEFAULT_BUFFER_SIZE;
     const buf = try http.arena.alloc(u8, buf_size);
+
+    // IF we are text/event-stream AND we have no content-length (chunked encoding)
+    // THEN detach the request from the connection - because the browser will never queue
+    // another request over this same connection
+    if (opt.sync) {
+        http.detach = true;
+    }
 
     // need to create a BodyWriter on the heap, because we use it after this
     // because this is on the arena owned by the handleConnection->request ...
@@ -261,16 +307,16 @@ pub fn NewSSEOpt(http: HTTPRequest, opt: SSEOptions) !SSE {
     };
 }
 
-pub fn NewSSEFromStream(stream: *std.http.BodyWriter, allocator: std.mem.Allocator) SSE {
-    const allocating_writer = Io.Writer.Allocating.initCapacity(allocator, 8 * 1024) catch Io.Writer.Allocating.init(allocator);
-    return SSE{
-        .stream = stream,
-        .output_buffer = allocating_writer,
-        .buffer_size = 0,
-        .sync = true,
-        .chunked = true,
-    };
-}
+// pub fn NewSSEFromStream(stream: *std.http.BodyWriter, allocator: std.mem.Allocator) SSE {
+//     const allocating_writer = Io.Writer.Allocating.initCapacity(allocator, 8 * 1024) catch Io.Writer.Allocating.init(allocator);
+//     return SSE{
+//         .stream = stream,
+//         .output_buffer = allocating_writer,
+//         .buffer_size = 0,
+//         .sync = true,
+//         .chunked = true,
+//     };
+// }
 
 pub const Message = struct {
     out_buffer: *Io.Writer = undefined, // an intermediate buffer to write the expanded Datastar event stream to
@@ -563,6 +609,49 @@ pub fn Subscribers(comptime T: type) type {
                 self.mutex.unlock();
             }
 
+            std.debug.print("unsubscribe sse {*}\n", .{sse});
+            if (self.stream_topics.fetchRemove(sse)) |kv| {
+                std.debug.print("removed stream_topics for stream {*}\n", .{sse});
+                var topics = kv.value;
+                defer topics.deinit(self.gpa);
+
+                for (topics.items) |topic_name| {
+                    std.debug.print("scanning topic streams for topic {s}\n", .{topic_name});
+                    if (self.subs.getPtr(topic_name)) |subs| {
+                        var i: usize = subs.items.len;
+                        while (i > 0) {
+                            i -= 1;
+                            const sub = subs.items[i];
+                            if (sub.sse == sse) {
+                                if (sub.session) |sess| {
+                                    self.gpa.free(sess);
+                                }
+
+                                _ = subs.swapRemove(i);
+                                std.debug.print("Closing subscriber SSE {*} on topic {s}\n", .{ sse, topic_name });
+                            }
+                        }
+
+                        if (subs.items.len == 0) {
+                            subs.deinit(self.gpa);
+                            if (self.subs.fetchRemove(topic_name)) |entry| {
+                                self.gpa.free(entry.key);
+                            }
+                        }
+                    }
+                }
+            }
+            std.debug.print("Removing topic list for SSE {*}\n", .{sse});
+        }
+
+        // TODO - remove this
+        pub fn unsubscribeOld(self: *Self, sse: *SSE) void {
+            self.mutex.lock();
+            defer {
+                self.debugState("after unsubscribe session");
+                self.mutex.unlock();
+            }
+
             if (self.stream_topics.getPtr(sse)) |topics| {
                 for (topics.items) |topic| {
                     // remove the stream from the subscriptions for this topic
@@ -587,6 +676,99 @@ pub fn Subscribers(comptime T: type) type {
             _ = self.stream_topics.remove(sse);
         }
 
+        pub fn subscribeSessionGeminiLatest(self: *Self, topic: []const u8, sse: *SSE, func: Callback(T), session: SessionType) !void {
+            self.mutex.lock();
+            defer {
+                self.debugState("after subscribe session");
+                self.mutex.unlock();
+            }
+
+            // 1. Initial Callback (The "Live" check)
+            {
+                sse.mutex.lock();
+                defer sse.mutex.unlock();
+                @call(.auto, func, .{ self.app, sse, session }) catch |err| return err;
+            }
+
+            // 2. Prepare Subscription
+            const new_sub = Subscription{
+                .sse = sse,
+                .action = func,
+                .session = if (session) |sv| try self.gpa.dupe(u8, sv) else null,
+            };
+
+            // 3. Update Subscriptions Map (Topic -> List of SSEs)
+            // We use getOrPut. If 'cats' exists, we get the existing ArrayList.
+            const subs_gop = try self.subs.getOrPut(topic);
+            if (!subs_gop.found_existing) {
+                std.debug.print("adding new topic list for {s}\n", .{topic});
+                // IMPORTANT: We must dupe the KEY because 'topic' comes from the request
+                subs_gop.key_ptr.* = try self.gpa.dupe(u8, topic);
+                subs_gop.value_ptr.* = std.ArrayList(Subscription).empty;
+            } else {
+                std.debug.print("appending to existing topic list for {s}\n", .{topic});
+            }
+            try subs_gop.value_ptr.append(self.gpa, new_sub);
+
+            // 4. Update Stream Mapping (SSE -> List of Topics)
+            // Use the persistent key from the subs map
+            const canonical_topic = subs_gop.key_ptr.*;
+            const st_gop = try self.stream_topics.getOrPut(sse);
+            if (!st_gop.found_existing) {
+                std.debug.print("adding new stream topic list for SSE {*}\n", .{sse});
+                st_gop.value_ptr.* = std.ArrayList([]const u8).empty;
+            }
+            try st_gop.value_ptr.append(self.gpa, canonical_topic);
+        }
+
+        pub fn subscribeSessionGemini2(self: *Self, topic: []const u8, sse: *SSE, func: Callback(T), session: SessionType) !void {
+            self.mutex.lock();
+            defer {
+                self.debugState("after subscribe session");
+                self.mutex.unlock();
+            }
+
+            std.debug.print("calling the initial subscribe callback function for topic {s} on SSE {*}\n", .{ topic, sse });
+            {
+                sse.mutex.lock();
+                defer sse.mutex.unlock();
+                @call(.auto, func, .{ self.app, sse, session }) catch |err| {
+                    // stream.close();
+                    return err;
+                };
+            }
+
+            const new_sub = Subscription{
+                .sse = sse,
+                .action = func,
+                .session = if (session) |sv| try self.gpa.dupe(u8, sv) else null,
+            };
+
+            // Add to the Subscriptions map (Topic -> List of SSEs)
+            // We use getOrPut to either find the existing list or create a slot for a new one
+            const gop = try self.subs.getOrPut(topic);
+            if (!gop.found_existing) {
+                // If it's a new topic, we must DUPE the key because 'topic' is likely ephemeral
+                gop.key_ptr.* = try self.gpa.dupe(u8, topic);
+                gop.value_ptr.* = std.ArrayList(Subscription).empty;
+            }
+            try gop.value_ptr.append(self.gpa, new_sub);
+
+            // Add to the StreamTopicMap (SSE -> List of Topics)
+            // IMPORTANT: Use the pointer to the string ALREADY in the subs map
+            // so both maps point to the exact same memory for the topic name.
+            const canonical_topic = gop.key_ptr.*;
+
+            const st_gop = try self.stream_topics.getOrPut(sse);
+            if (!st_gop.found_existing) {
+                st_gop.value_ptr.* = std.ArrayList([]const u8).empty;
+            }
+            try st_gop.value_ptr.append(self.gpa, canonical_topic);
+
+            std.debug.print("Total {d} topics and {d} streams tracked\n", .{ self.subs.count(), self.stream_topics.count() });
+        }
+
+        // TODO - remove this one
         pub fn subscribeSession(self: *Self, topic: []const u8, sse: *SSE, func: Callback(T), session: SessionType) !void {
             self.mutex.lock();
             defer {
@@ -654,15 +836,6 @@ pub fn Subscribers(comptime T: type) type {
                 try self.stream_topics.put(sse, new_topic_list);
             }
 
-            // // Debug output the current state of the maps
-            // std.debug.print("Updated subs on topic {s} :\n", .{topic});
-            // for (self.subs.get(topic).?.items, 0..) |s, ii| {
-            //     std.debug.print("  {d} - {any} Session {?s}\n", .{ ii, s.stream, s.session });
-            // }
-            // std.debug.print("Updated topics by stream {d} :\n", .{stream.handle});
-            // for (self.stream_topics.get(stream).?.items, 0..) |t, ii| {
-            //     std.debug.print("  {d} - {s}\n", .{ ii, t });
-            // }
             std.debug.print("Total {d} topics and {d} streams tracked\n", .{ self.subs.count(), self.stream_topics.count() });
         }
 
@@ -692,7 +865,7 @@ pub fn Subscribers(comptime T: type) type {
                             }
                         }
                         // the topic was duped in SubscribeSession, so get rid of it now
-                        self.gpa.free(topic);
+                        // self.gpa.free(topic);
                     }
                     topics.deinit(self.gpa);
                 }
@@ -707,14 +880,14 @@ pub fn Subscribers(comptime T: type) type {
 
         pub fn publishSession(self: *Self, topic: []const u8, session: SessionType) !void {
             std.debug.print("publishSession topic {s}\n", .{topic});
-            // self.mutex.lock();
+            self.mutex.lock();
             var dead_streams: StreamList = .empty;
             defer {
                 if (dead_streams.items.len > 0) {
                     self.purgeList(dead_streams);
                 }
                 dead_streams.deinit(self.gpa);
-                // self.mutex.unlock();
+                self.mutex.unlock();
             }
 
             // std.debug.print("publish on topic {s} for session {?s}\n", .{ topic, session });

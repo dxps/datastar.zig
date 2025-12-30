@@ -3,7 +3,6 @@ const Io = std.Io;
 const datastar = @import("datastar");
 const HTTPRequest = datastar.HTTPRequest;
 const App = @import("02_cats.zig").App;
-const rebooter = @import("rebooter.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -23,8 +22,6 @@ pub fn main() !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    try rebooter.start(io, allocator);
-
     var server = try HTTPServer.init(io, allocator, "0.0.0.0", PORT);
     server.setContext(app);
     defer server.deinit();
@@ -36,16 +33,16 @@ pub fn main() !void {
 
     std.debug.print("listening http://localhost:{d}/\n", .{PORT});
     std.debug.print("... or any other IP address pointing to this machine\n", .{});
-    try rebooter.start(io, allocator);
+    try server.rebooter();
     try server.run();
 }
 
-fn index(app: *App, http: HTTPRequest) !void {
+fn index(app: *App, http: *HTTPRequest) !void {
     _ = app;
     try http.html(@embedFile("02_index.html"));
 }
 
-fn catsList(app: *App, http: HTTPRequest) !void {
+fn catsList(app: *App, http: *HTTPRequest) !void {
     var subs = app.subscribers;
     var sse = try datastar.NewSSESync(http);
 
@@ -59,11 +56,14 @@ fn catsList(app: *App, http: HTTPRequest) !void {
     subs.unsubscribe(&sse);
 }
 
-fn postBid(app: *App, http: HTTPRequest) !void {
-    std.debug.print("POST /bid\n", .{});
+fn postBid(app: *App, http: *HTTPRequest) !void {
+    std.debug.print("POST /bid start lock\n", .{});
     app.mutex.lock();
     std.debug.print("POST /bid locked app\n", .{});
-    defer app.mutex.unlock();
+    defer {
+        app.mutex.unlock();
+        std.debug.print("POST /bid unlocked app\n", .{});
+    }
 
     const id_param = http.params.get("id") orelse "0";
     const id = try std.fmt.parseInt(usize, id_param, 10);
