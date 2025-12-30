@@ -4,7 +4,7 @@ const HTTPRequest = datastar.HTTPRequest;
 
 const Io = std.Io;
 
-const PORT = 8080;
+const PORT = 8081;
 
 var update_count: usize = 1;
 var update_mutex: std.Thread.Mutex = .{};
@@ -59,7 +59,7 @@ pub fn main() !void {
     // router.get("/svg-morph", svgMorph, .{});
     // router.get("/mathml-morph", mathMorph, .{});
 
-    std.debug.print("Server listening on http://localhost:8080\n", .{});
+    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
     try server.rebooter();
     try server.run();
 }

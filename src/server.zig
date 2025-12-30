@@ -73,7 +73,7 @@ pub fn Server(comptime Context: type) type {
                     if (err == error.HttpConnectionClosing) break;
                     return;
                 };
-                std.debug.print("*** end recvHeader on socket {}\n", .{conn.socket.handle});
+                std.debug.print("*** new request received on socket {}\n", .{conn.socket.handle});
 
                 var arena: std.heap.ArenaAllocator = .init(self.allocator);
                 defer arena.deinit();
