@@ -74,12 +74,21 @@ pub const SSE = struct {
     }
 
     pub fn flush(self: *SSE) !void {
-        if (self.msg) |*msg| try msg.end();
+        // if (self.msg) |*msg| try msg.end();
         const data = self.output_buffer.written();
 
         // write to the bodyWriter, on flush this gets chunked and forwarded to the final_output
         try self.stream.writer.writeAll(data);
-        try self.stream.writer.flush();
+
+        if (self.sync) {
+            // in sync mode, we need to manually trip the end-of-chunk by adding \r\n
+            // then tell the BodyWriter to flush itself to the underlying socket connection
+            try self.stream.writer.writeAll("\r\n");
+            try self.stream.writer.flush();
+            try self.stream.flush(); // flushing the BodyWriter does the work of writing to the http_protocol_output
+            _ = self.output_buffer.writer.consume(data.len + 2);
+            return;
+        }
         _ = self.output_buffer.writer.consume(data.len);
     }
 
@@ -204,6 +213,9 @@ pub fn NewSSEOpt(http: HTTPRequest, opt: SSEOptions) !SSE {
     const buf = try http.arena.alloc(u8, buf_size);
 
     // need to create a BodyWriter on the heap, because we use it after this
+    // because this is on the arena owned by the handleConnection->request ...
+    // that means the handler needs to stay alive for as long we expect to keep
+    // using this bodyWriter. This has implications for pub/sub
     const res = try http.arena.create(std.http.BodyWriter);
     res.* = try http.req.respondStreaming(
         buf,
@@ -217,9 +229,7 @@ pub fn NewSSEOpt(http: HTTPRequest, opt: SSEOptions) !SSE {
         break :blk Io.Writer.Allocating.initCapacity(http.arena, opt.buffer_size) catch Io.Writer.Allocating.init(http.arena);
     };
     if (opt.sync) {
-        std.debug.print("Flushing the response header now !!\n", .{});
         try res.flush();
-        try http.req.server.out.flush();
     }
 
     return SSE{
