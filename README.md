@@ -54,7 +54,7 @@ Try it out.
 If you just want to quickly install this, and try out the demo programs first, do this :
 
 ```
-... get zig 0.15.2 installed on your machine
+... get zig 0.16-dev installed on your machine
 git clone https://github.com/zigster64/datastar.zig
 cd datastar.zig
 zig build
@@ -196,6 +196,7 @@ pub fn main() !void {
     r.get("/code/:snip", code);
 
     std.debug.print("Server listening on http://localhost:8080\n", .{});
+    try server.rebooter(io); // optional function to reboot the server on re-compile
     try server.run();
 }
 
@@ -228,7 +229,8 @@ fn patchElements(http: HTTPRequest) !void {
 const datastar = @import("datastar");
 
 // read signals either from GET or POST
-datastar.readSignals(comptime T: type, req: anytype) !T
+http.readSignals(comptime T: type) !T  // for use with the built in HTTPServer
+datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T // generic interface if you are not using the built in HTTPServer
 
 // set the connection to SSE, and return an SSE object
 var sse = datastar.NewSSE(http) !SSE
@@ -249,6 +251,33 @@ sse.executeScript(script, script_options) !void
 sse.executeScriptFmt(comptime script, arguments, script_options) !void
 sse.executeScriptWriter(script_options) *std.Io.Writer
 
+## Cheatsheet of all HTTPServer functions
+
+```zig
+// Generate a Server type that has no global context
+Server(void)
+... handler signatures are handler(HTTPRequest)
+
+// Generate a Server type that takes a type as a global app context
+Server(T)
+server.setContext(ctx)
+... handler signatures are handler(Context, HTTPRequest)
+
+// create a server given an address
+server.init(io, allocator, address, port) !Server
+
+// create a server listening on all interfaces with IPv6
+server.initIp6(io, allocator, port) !Server
+
+// server instance cleanup
+server.deinit()
+
+// run the server
+server.run()
+
+// tell the whole app to reload and reboot whenever the program is re-compiled
+server.rebooter()
+```
 
 # Using the Datastar SDK
 
@@ -293,8 +322,14 @@ Finally, there is a NewSSE variant that takes a set of options, for special case
 
 ## Reading Signals from the request
 
+Using the built in HTTPServer
 ```zig
-    pub fn readSignals(comptime T: type, req: anytype) !T
+    pub fn http.readSignals(comptime T: type) !T
+```
+
+Using other HTTP Server libs - generic version 
+```zig
+    pub fn datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T
 ```
 
 Will take a Type (struct) and a HTTP request, and returns a filled in struct of the requested type.
@@ -316,7 +351,7 @@ Example :
         bar: []const u8,
     };
 
-    const signals = try datastar.readSignals(FooBar, req);
+    const signals = try http.readSignals(FooBar);
     std.debug.print("Request sent foo: {s}, bar: {s}\n", .{signals.foo, signals.bar});
 ```
 
