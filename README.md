@@ -114,14 +114,6 @@ The source code for the `validation-test` program is in the file `tests/validati
 
 Current version passes all tests.
 
-# Contrib Policy
-
-All contribs welcome.
-
-Please raise a github issue first before adding a PR, and reference the issue in the PR title. 
-
-This allows room for open discussion, as well as tracking of issues opened and closed.
-
 
 # Example Apps
 
@@ -236,6 +228,14 @@ datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.
 var sse = datastar.NewSSE(http) !SSE
 var sse = datastar.NewSSESync(http) !SSE
 var sse = datastar.NewSSEOpt(http, sse_options) !SSE
+
+// when you are finished with this connection
+sse.close()
+
+// when you want to keep the connection alive for a long time 
+// then call this in your handler. It will continue until the 
+// browser closes the connection
+sse.keepalive(io, duration)
 
 // patch elements function variants
 sse.patchElements(elementsHTML, elements_options) !void
@@ -591,7 +591,6 @@ In this case use `NewSSESync(http)` to set the SSE into Synchronous Mode.
 For example - in the SVGMorph demo, we want to generate a randomized SVG update, then write that to the client 
 browser, then pause for 100ms and repeat, to provide a smooth animation of the SVG.
 
-
 ## Namespaces - SVG and MathML (Datastar RC7 feature)
 
 `patchElements()` works great when morphing small fragments into existing DOM content, using the element ID,
@@ -613,4 +612,50 @@ system that exploits the fact that http.zig allows you to detach sockets from ha
 In Zig 0.16 - The recommended approach here will be to use the Evented IO to create long running coroutines 
 for those handlers that want to subscribe to topics.
 
-For publishing to topics, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
+For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
+
+This version of the SDK also implements the pub/sub  
+
+# Long Lived Connections
+
+When using a pub/sub setup with your application (be it the built in pubsub, or some more robust multi-service messaging backbone), you will want
+your connections to be long lived.
+
+Some examples for different ways to acheive this :
+
+```zig
+// Using the built in pub-sub
+// Sit this thread in a loop that will generate keepalive pings every 30 seconds
+// whilst other threads write data to the same connection via the publish callback
+fn catsList(app: *App, http: *HTTPRequest) !void {
+    var sse = try datastar.NewSSESync(http);
+
+    try app.subscribers.subscribe("cats", &sse, App.publishCatList);
+    sse.keepalive(http.io, .fromSeconds(30));
+    subs.unsubscribe(&sse);
+}
+
+// Using an external pub-sub message queue
+fn catsList(app: *App, http: *HTTPRequest) !void {
+    var sse = try datastar.NewSSESync(http);
+
+    var mq = app.pubsub.subscribe("cats");
+    while (mq.next()) {
+        app.publishCatList();
+    }
+}
+
+
+```
+
+
+
+
+# Contrib Policy
+
+All contribs welcome.
+
+Please raise a github issue first before adding a PR, and reference the issue in the PR title. 
+
+This allows room for open discussion, as well as tracking of issues opened and closed.
+

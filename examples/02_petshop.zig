@@ -52,7 +52,7 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
         try subs.subscribe("cats", &sse, App.publishCatList);
     }
 
-    sse.keepalive(http.io);
+    sse.keepalive(http.io, .fromSeconds(30));
     subs.unsubscribe(&sse);
 }
 

@@ -105,13 +105,12 @@ pub const SSE = struct {
     // hold open to publish to
     // Has the added benefit of doing a keepalive ping every 30 seconds
     // which will also pickup dead connections for automatic purging
-    pub fn keepalive(self: *SSE, io: Io) void {
+    pub fn keepalive(self: *SSE, io: Io, duration: std.Io.Duration) void {
         var i: u32 = 0;
-        const TICK = 2; // 30;
         defer std.debug.print("keepalive terminating at {} on {*}\n", .{ i, self.stream });
         while (true) {
-            io.sleep(.fromSeconds(TICK), .real) catch return;
-            i += TICK;
+            io.sleep(duration, .real) catch return;
+            i += 1;
             {
                 self.mutex.lock();
                 defer self.mutex.unlock();
