@@ -183,8 +183,8 @@ pub fn main() !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // pass an IO, an allocator, an address, and a port number to listen on
-    var server = try datastar.Server.init(io, allocator, "0.0.0.0", 8080);
+    // Create a server listening on all IP addresses, including IPv6
+    var server = try datastar.Server.initIp6(io, allocator,8080);
     defer server.deinit();
 
     // Add some routes with different http methods

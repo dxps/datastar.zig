@@ -22,7 +22,7 @@ pub fn main() !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var server = try HTTPServer.init(io, allocator, "0.0.0.0", PORT);
+    var server = try HTTPServer.initIp6(io, allocator, PORT);
     server.setContext(app);
     defer server.deinit();
 
