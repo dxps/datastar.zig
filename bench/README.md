@@ -1,6 +1,6 @@
 # Zig 0.16-dev Benchmark
 
-![Cyberpunk Benchmark - Sydney Graffiti - Leica M3 with infrared film](assets/benchmark.jpg)
+![Cyberpunk Benchmark - Sydney Graffiti - Leica M3 with infrared film](../assets/benchmark.jpg)
 
 To build - run `make`
 
