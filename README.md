@@ -1,5 +1,7 @@
 # Datastar lib for zig 0.16-dev
 
+![Cyberpunk Datastar Zig SDK - Sydney Metro Rail - Leica XV](assets/datastar.zig.jpg)
+
 A Zig library for 0.16 / latest async/concurrent stdlib that conforms to the Datastar SDK specification.
 
 https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
