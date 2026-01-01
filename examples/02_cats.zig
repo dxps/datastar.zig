@@ -1,5 +1,4 @@
 const std = @import("std");
-const logz = @import("logz");
 const datastar = @import("datastar");
 const pubsub = datastar.pubsub;
 
