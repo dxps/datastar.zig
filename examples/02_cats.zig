@@ -151,10 +151,6 @@ const Cats = std.ArrayList(Cat);
 // Schema for messages passed over pubsub
 const MQSchema = union(enum) {
     cats: void,
-
-    pub fn clone(self: MQSchema, _: Allocator) !MQSchema {
-        return self;
-    }
 };
 
 const App = struct {
