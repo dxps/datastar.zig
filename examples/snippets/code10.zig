@@ -1,12 +1,9 @@
 == mathMorph handler ==
 
 prng.seed(@intCast(std.time.timestamp()));
-const MathMorphOptions = struct {
-    mathmlMorph: usize = 1,
-};
-const opt = blk: {
-    break :blk http.readSignals(MathMorphOptions) catch break :blk MathMorphOptions{ .mathmlMorph = 1 };
-};
+
+opt = try http.readSignals(struct{mathmlMorph: usize = 1});
+
 var sse = try datastar.NewSSESync(http);
 defer sse.close();
 

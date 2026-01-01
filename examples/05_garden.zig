@@ -120,11 +120,7 @@ fn postPlantEffect(app: *App, req: *httpz.Request, _: *httpz.Response) !void {
 
     if (id < 0 or id >= 4) return error.InvalidID;
 
-    const Hand = struct {
-        hand: []const u8,
-    };
-
-    const signals = try datastar.readSignals(Hand, req);
+    const signals = try datastar.readSignals(struct { hand: []const u8 }, req);
 
     var plant_slot = app.plants[id];
     if (plant_slot) |*plant| { // Plant exists

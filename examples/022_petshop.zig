@@ -130,10 +130,7 @@ fn postBid(app: *App, req: *httpz.Request, _: *httpz.Response) !void {
 
     app.sortCats(.id);
 
-    const Bids = struct {
-        bids: []usize,
-    };
-    const signals = try datastar.readSignals(Bids, req);
+    const signals = try datastar.readSignals(struct { bids: []usize }, req);
     // std.debug.print("bids {any}\n", .{signals.bids});
     const new_bid = signals.bids[id];
     // std.debug.print("new bid {}\n", .{new_bid});

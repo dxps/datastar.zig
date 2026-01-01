@@ -416,6 +416,13 @@ Example :
     std.debug.print("Request sent foo: {s}, bar: {s}\n", .{signals.foo, signals.bar});
 ```
 
+If you prefer, you can use anonymous structs too - can make the code more readable :
+
+```zig
+    const signals = try http.readSignals(struct {foo: []const u8, bar: []const u8});
+    std.debug.print("Request sent foo: {s}, bar: {s}\n", .{signals.foo, signals.bar});
+```
+
 
 ## Patching Elements
 

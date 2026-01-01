@@ -101,13 +101,8 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
         return error.InvalidID;
     }
 
-    const Bids = struct {
-        bids: []usize,
-    };
-    const signals = try http.readSignals(Bids);
-    // std.debug.print("bids {any}\n", .{signals.bids});
+    const signals = try http.readSignals(struct { bids: []usize });
     const new_bid = signals.bids[id];
-    // std.debug.print("new bid {}\n", .{new_bid});
     app.cats.items[id].bid = new_bid;
 
     // update any screens subscribed to "cats"
