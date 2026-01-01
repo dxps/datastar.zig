@@ -110,7 +110,7 @@ pub const SSE = struct {
         const clock: std.Io.Clock = .real;
         const now = try clock.now(self.io);
         try self.patchElementsFmt(
-            \\<keepaline data-time="{}" />
+            \\<keepalive data-time="{}" />
         , .{self.start_time.durationTo(now).toSeconds()}, .{});
     }
 

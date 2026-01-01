@@ -80,9 +80,7 @@ pub fn Server(comptime Context: type) type {
                     .params = .{},
                 };
 
-                self.router.dispatch(self.ctx, &http) catch |err| {
-                    std.debug.print("Dispatch error {} on socket {}\n", .{ err, conn.socket.handle });
-                };
+                self.router.dispatch(self.ctx, &http) catch return;
 
                 // Anything asking for a Sync SSE connection will detach the request from this inner loop
                 // this is because any SSE created over this connection will be treated as the last action
