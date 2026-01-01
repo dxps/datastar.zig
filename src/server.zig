@@ -56,8 +56,6 @@ pub fn Server(comptime Context: type) type {
                 conn.close(self.io);
             }
 
-            std.debug.print("*** new connection on socket {}\n", .{conn.socket.handle});
-
             var read_buffer: [4096]u8 = undefined;
             var write_buffer: [4096]u8 = undefined;
 
@@ -67,13 +65,10 @@ pub fn Server(comptime Context: type) type {
             var server = std.http.Server.init(&reader.interface, &writer.interface);
 
             while (true) {
-                std.debug.print("*** waiting for new request on socket {}\n", .{conn.socket.handle});
                 var request = server.receiveHead() catch |err| {
-                    std.debug.print("*** recvHead error on stream {} IoWriter {*}:{}\n", .{ conn.socket.handle, &writer.interface, err });
                     if (err == error.HttpConnectionClosing) break;
                     return;
                 };
-                std.debug.print("*** new request received on socket {}\n", .{conn.socket.handle});
 
                 var arena: std.heap.ArenaAllocator = .init(self.allocator);
                 defer arena.deinit();
@@ -386,8 +381,6 @@ pub fn Router(comptime Context: type) type {
         pub fn dispatch(self: *Self, ctx: ?Context, http: *HTTPRequest) !void {
             var params = Params{};
             var current = self.root;
-
-            std.debug.print("*** dispatch request for {t} {s} on http {*}\n", .{ http.req.head.method, http.req.head.target, http });
 
             const target = http.req.head.target;
             const query_index = std.mem.indexOfScalar(u8, target, '?') orelse target.len;

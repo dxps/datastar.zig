@@ -168,6 +168,8 @@ const datastar = @import("datastar");
 
 const Io = std.Io;
 
+const PORT = 8080;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
@@ -178,7 +180,7 @@ pub fn main() !void {
 
     // Create a server listening on all IP addresses, including IPv6
     const HTTPServer = datastar.Server(void);
-    var server = try HTTPServer.initIp6(io, allocator, 8080);
+    var server = try HTTPServer.initIp6(io, allocator, PORT);
     defer server.deinit();
 
     // Add some routes with different http methods
@@ -189,8 +191,13 @@ pub fn main() !void {
     r.post("/patch/opts", patchElementsOpts);
     r.get("/code/:snip", code);
 
-    std.debug.print("Server listening on http://localhost:8080\n", .{});
-    try server.rebooter(); // optional function to reboot the server on re-compile
+    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
+
+    // optional function to reboot the server on re-compile
+    // try this if you are doing local dev - is handy
+    try server.rebooter();
+
+    // everything is set, so start the server up
     try server.run();
 }
 

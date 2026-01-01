@@ -1,4 +1,6 @@
 const std = @import("std");
+pub const pubsub = @import("pubsub");
+
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
@@ -67,7 +69,8 @@ pub const SSE = struct {
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
     sync: bool, // the SSE is operating in sync mode - patches are posted immediately
     chunked: bool = false, // set to true if we want to do the chunking manually ourselves
-    mutex: std.Thread.Mutex = .{},
+    io: Io, // what IO implementation are we running under ?
+    start_time: std.Io.Timestamp,
 
     pub fn deinit(self: *SSE) void {
         self.flush() catch {};
@@ -101,22 +104,14 @@ pub const SSE = struct {
         self.stream.end() catch {};
     }
 
-    // call this on long lived connection that you want to
-    // hold open to publish to
-    // Has the added benefit of doing a keepalive ping every 30 seconds
-    // which will also pickup dead connections for automatic purging
-    pub fn keepalive(self: *SSE, io: Io, duration: std.Io.Duration) void {
-        var i: u32 = 0;
-        defer std.debug.print("keepalive terminating at {} on {*}\n", .{ i, self.stream });
-        while (true) {
-            io.sleep(duration, .real) catch return;
-            i += 1;
-            {
-                self.mutex.lock();
-                defer self.mutex.unlock();
-                self.patchElementsFmt("<keepalive data-time='{}' />", .{i}, .{}) catch return;
-            }
-        }
+    // Sends a keepalive packet on a connected SSE
+    // this is a HTML patchElement with no id, sending the time elapsed inside the SSE, in seconds
+    pub fn keepalive(self: *SSE) !void {
+        const clock: std.Io.Clock = .real;
+        const now = try clock.now(self.io);
+        try self.patchElementsFmt(
+            \\<keepaline data-time="{}" />
+        , .{self.start_time.durationTo(now).toSeconds()}, .{});
     }
 
     pub fn writer(self: *Message) ?*Io.Writer {
@@ -298,24 +293,16 @@ pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
         try res.flush();
     }
 
+    const clock: std.Io.Clock = .real;
     return SSE{
         .stream = res,
         .output_buffer = allocating_writer,
         .buffer_size = opt.buffer_size,
         .sync = opt.sync,
+        .io = http.io,
+        .start_time = try clock.now(http.io),
     };
 }
-
-// pub fn NewSSEFromStream(stream: *std.http.BodyWriter, allocator: std.mem.Allocator) SSE {
-//     const allocating_writer = Io.Writer.Allocating.initCapacity(allocator, 8 * 1024) catch Io.Writer.Allocating.init(allocator);
-//     return SSE{
-//         .stream = stream,
-//         .output_buffer = allocating_writer,
-//         .buffer_size = 0,
-//         .sync = true,
-//         .chunked = true,
-//     };
-// }
 
 pub const Message = struct {
     out_buffer: *Io.Writer = undefined, // an intermediate buffer to write the expanded Datastar event stream to
@@ -515,438 +502,6 @@ pub const Message = struct {
     }
 };
 
-const SessionType = ?[]const u8;
-const StreamList = std.ArrayList(*SSE);
-
-pub fn Subscribers(comptime T: type) type {
-    return struct {
-        gpa: Allocator,
-        app: T,
-        subs: Subscriptions,
-        stream_topics: StreamTopicMap,
-        mutex: std.Thread.Mutex = .{},
-
-        const Self = @This();
-        const Subscription = struct {
-            sse: *SSE,
-            action: Callback(T),
-            session: SessionType = null,
-        };
-
-        // A collection of subscriptions for each topic
-        const Subscriptions = std.StringHashMap(std.ArrayList(Subscription));
-
-        // A map of which topics each stream is subscribed to, for quick lookup by stream
-        const StreamTopicMap = std.AutoHashMap(*SSE, std.ArrayList([]const u8));
-
-        pub fn init(gpa: Allocator, ctx: T) !Self {
-            return .{
-                .gpa = gpa,
-                .app = ctx,
-                .subs = Subscriptions.init(gpa),
-                .stream_topics = StreamTopicMap.init(gpa),
-            };
-        }
-
-        pub fn deinit(self: *Self) void {
-            for (self.subs) |s| {
-                for (s) |sub| {
-                    sub.sse.close() catch {};
-                    if (sub.session != null) {
-                        self.gpa.free(sub.session);
-                    }
-                }
-                s.deinit();
-            }
-            self.sub.deinit();
-            for (self.stream_topics) |st| {
-                for (st.items) |topic| {
-                    self.gpa.free(topic);
-                }
-            }
-            self.stream_map.deinit();
-        }
-
-        pub fn debugState(self: *Self, desc: []const u8) void {
-            {
-                std.debug.print("Subscription States - {s}\n", .{desc});
-                var iterator = self.subs.iterator();
-                while (iterator.next()) |entry| {
-                    std.debug.print("  Topic: {s} Streams: [ ", .{entry.key_ptr.*});
-                    for (entry.value_ptr.*.items) |sub| {
-                        std.debug.print(" {*}", .{sub.sse});
-                        if (sub.session) |ss| {
-                            std.debug.print(":{s}", .{ss});
-                        }
-                    }
-                    std.debug.print(" ]\n", .{});
-                }
-            }
-
-            {
-                var iterator = self.stream_topics.iterator();
-                while (iterator.next()) |entry| {
-                    std.debug.print("  Stream: {*} Topics: [", .{entry.key_ptr.*});
-
-                    for (entry.value_ptr.*.items) |topic| {
-                        std.debug.print(" {s}", .{topic});
-                    }
-                    std.debug.print(" ]\n", .{});
-                }
-            }
-        }
-
-        pub fn subscribe(self: *Self, topic: []const u8, sse: *SSE, func: Callback(T)) !void {
-            return self.subscribeSession(topic, sse, func, null);
-        }
-
-        // unsubscribe this stream from everything - note this function cant fail
-        pub fn unsubscribe(self: *Self, sse: *SSE) void {
-            self.mutex.lock();
-            defer {
-                self.debugState("after unsubscribe session");
-                self.mutex.unlock();
-            }
-
-            std.debug.print("unsubscribe sse {*}\n", .{sse});
-            if (self.stream_topics.fetchRemove(sse)) |kv| {
-                std.debug.print("removed stream_topics for stream {*}\n", .{sse});
-                var topics = kv.value;
-                defer topics.deinit(self.gpa);
-
-                for (topics.items) |topic_name| {
-                    std.debug.print("scanning topic streams for topic {s}\n", .{topic_name});
-                    if (self.subs.getPtr(topic_name)) |subs| {
-                        var i: usize = subs.items.len;
-                        while (i > 0) {
-                            i -= 1;
-                            const sub = subs.items[i];
-                            if (sub.sse == sse) {
-                                if (sub.session) |sess| {
-                                    self.gpa.free(sess);
-                                }
-
-                                _ = subs.swapRemove(i);
-                                std.debug.print("Closing subscriber SSE {*} on topic {s}\n", .{ sse, topic_name });
-                            }
-                        }
-
-                        if (subs.items.len == 0) {
-                            subs.deinit(self.gpa);
-                            if (self.subs.fetchRemove(topic_name)) |entry| {
-                                self.gpa.free(entry.key);
-                            }
-                        }
-                    }
-                }
-            }
-            std.debug.print("Removing topic list for SSE {*}\n", .{sse});
-        }
-
-        // TODO - remove this
-        pub fn unsubscribeOld(self: *Self, sse: *SSE) void {
-            self.mutex.lock();
-            defer {
-                self.debugState("after unsubscribe session");
-                self.mutex.unlock();
-            }
-
-            if (self.stream_topics.getPtr(sse)) |topics| {
-                for (topics.items) |topic| {
-                    // remove the stream from the subscriptions for this topic
-                    if (self.subs.getPtr(topic)) |subs| {
-                        // traverse the list backwards so its safe to drop elements during traversal
-                        var i: usize = subs.items.len;
-                        while (i > 0) {
-                            i -= 1;
-                            const sub = subs.items[i];
-                            if (sub.sse == sse) {
-                                _ = subs.swapRemove(i);
-                                std.debug.print("Closing subscriber SSE {*} on topic {s}\n", .{ sub.sse, topic });
-                            }
-                        }
-                    }
-                    // the topic was duped in SubscribeSession, so get rid of it now
-                    self.gpa.free(topic);
-                }
-                topics.deinit(self.gpa);
-            }
-            std.debug.print("Removing topic list for SSE {*}\n", .{sse});
-            _ = self.stream_topics.remove(sse);
-        }
-
-        pub fn subscribeSessionGeminiLatest(self: *Self, topic: []const u8, sse: *SSE, func: Callback(T), session: SessionType) !void {
-            self.mutex.lock();
-            defer {
-                self.debugState("after subscribe session");
-                self.mutex.unlock();
-            }
-
-            // 1. Initial Callback (The "Live" check)
-            {
-                sse.mutex.lock();
-                defer sse.mutex.unlock();
-                @call(.auto, func, .{ self.app, sse, session }) catch |err| return err;
-            }
-
-            // 2. Prepare Subscription
-            const new_sub = Subscription{
-                .sse = sse,
-                .action = func,
-                .session = if (session) |sv| try self.gpa.dupe(u8, sv) else null,
-            };
-
-            // 3. Update Subscriptions Map (Topic -> List of SSEs)
-            // We use getOrPut. If 'cats' exists, we get the existing ArrayList.
-            const subs_gop = try self.subs.getOrPut(topic);
-            if (!subs_gop.found_existing) {
-                std.debug.print("adding new topic list for {s}\n", .{topic});
-                // IMPORTANT: We must dupe the KEY because 'topic' comes from the request
-                subs_gop.key_ptr.* = try self.gpa.dupe(u8, topic);
-                subs_gop.value_ptr.* = std.ArrayList(Subscription).empty;
-            } else {
-                std.debug.print("appending to existing topic list for {s}\n", .{topic});
-            }
-            try subs_gop.value_ptr.append(self.gpa, new_sub);
-
-            // 4. Update Stream Mapping (SSE -> List of Topics)
-            // Use the persistent key from the subs map
-            const canonical_topic = subs_gop.key_ptr.*;
-            const st_gop = try self.stream_topics.getOrPut(sse);
-            if (!st_gop.found_existing) {
-                std.debug.print("adding new stream topic list for SSE {*}\n", .{sse});
-                st_gop.value_ptr.* = std.ArrayList([]const u8).empty;
-            }
-            try st_gop.value_ptr.append(self.gpa, canonical_topic);
-        }
-
-        pub fn subscribeSessionGemini2(self: *Self, topic: []const u8, sse: *SSE, func: Callback(T), session: SessionType) !void {
-            self.mutex.lock();
-            defer {
-                self.debugState("after subscribe session");
-                self.mutex.unlock();
-            }
-
-            std.debug.print("calling the initial subscribe callback function for topic {s} on SSE {*}\n", .{ topic, sse });
-            {
-                sse.mutex.lock();
-                defer sse.mutex.unlock();
-                @call(.auto, func, .{ self.app, sse, session }) catch |err| {
-                    // stream.close();
-                    return err;
-                };
-            }
-
-            const new_sub = Subscription{
-                .sse = sse,
-                .action = func,
-                .session = if (session) |sv| try self.gpa.dupe(u8, sv) else null,
-            };
-
-            // Add to the Subscriptions map (Topic -> List of SSEs)
-            // We use getOrPut to either find the existing list or create a slot for a new one
-            const gop = try self.subs.getOrPut(topic);
-            if (!gop.found_existing) {
-                // If it's a new topic, we must DUPE the key because 'topic' is likely ephemeral
-                gop.key_ptr.* = try self.gpa.dupe(u8, topic);
-                gop.value_ptr.* = std.ArrayList(Subscription).empty;
-            }
-            try gop.value_ptr.append(self.gpa, new_sub);
-
-            // Add to the StreamTopicMap (SSE -> List of Topics)
-            // IMPORTANT: Use the pointer to the string ALREADY in the subs map
-            // so both maps point to the exact same memory for the topic name.
-            const canonical_topic = gop.key_ptr.*;
-
-            const st_gop = try self.stream_topics.getOrPut(sse);
-            if (!st_gop.found_existing) {
-                st_gop.value_ptr.* = std.ArrayList([]const u8).empty;
-            }
-            try st_gop.value_ptr.append(self.gpa, canonical_topic);
-
-            std.debug.print("Total {d} topics and {d} streams tracked\n", .{ self.subs.count(), self.stream_topics.count() });
-        }
-
-        // TODO - remove this one
-        pub fn subscribeSession(self: *Self, topic: []const u8, sse: *SSE, func: Callback(T), session: SessionType) !void {
-            self.mutex.lock();
-            defer {
-                self.debugState("after subscribe session");
-                self.mutex.unlock();
-            }
-
-            // // purge it first ?
-            // {
-            //     var streams: StreamList = .empty;
-            //     try streams.append(self.gpa, stream);
-            //     self.purge(streams);
-            //     streams.deinit(self.gpa);
-            // }
-
-            // check first that the given stream isnt already subscribed to this topic !!
-            {
-                if (self.stream_topics.get(sse)) |topics| {
-                    for (topics.items) |subscribed_topic| {
-                        if (std.mem.eql(u8, topic, subscribed_topic)) {
-                            std.debug.print("SSE {*} is already subscribed to topic {s} ... ignoring.!\n", .{ sse, topic });
-                            break;
-                            // return;
-                        }
-                    }
-                }
-            }
-
-            // on first subscription, try to write the output first
-            // if it works, then we add them to the subscriber list
-            std.debug.print("calling the initial subscribe callback function for topic {s} on SSE {*}\n", .{ topic, sse });
-            {
-                sse.mutex.lock();
-                defer sse.mutex.unlock();
-                @call(.auto, func, .{ self.app, sse, session }) catch |err| {
-                    // stream.close();
-                    return err;
-                };
-            }
-
-            var new_sub = Subscription{
-                .sse = sse,
-                .action = func,
-            };
-            if (session) |sv| {
-                // we need to dupe the session passed in, because its often just a stack variable
-                // pay careful attention to freeing this dupe whenever the session is terminated
-                // which can happen during publish and it detects that the connection has closed
-                new_sub.session = try self.gpa.dupe(u8, sv);
-            }
-            if (self.subs.getPtr(topic)) |subs| {
-                try subs.append(self.gpa, new_sub);
-            } else {
-                var new_sub_list: std.ArrayList(Subscription) = .empty;
-                try new_sub_list.append(self.gpa, new_sub);
-                try self.subs.put(topic, new_sub_list);
-            }
-
-            const topic_copy = try self.gpa.dupe(u8, topic);
-            if (self.stream_topics.getPtr(sse)) |topics| {
-                try topics.append(self.gpa, topic_copy);
-            } else {
-                var new_topic_list: std.ArrayList([]const u8) = .empty;
-                try new_topic_list.append(self.gpa, topic_copy);
-                try self.stream_topics.put(sse, new_topic_list);
-            }
-
-            std.debug.print("Total {d} topics and {d} streams tracked\n", .{ self.subs.count(), self.stream_topics.count() });
-        }
-
-        fn purgeList(self: *Self, streams: StreamList) void {
-            if (streams.items.len == 0) return;
-
-            defer self.debugState("after purge list session");
-
-            // get the topics that the stream was subscribed to
-            // so we can limit the number of subscription lists to look through
-            for (streams.items) |stream| {
-                if (self.stream_topics.getPtr(stream)) |topics| {
-                    for (topics.items) |topic| {
-                        // remove the stream from the subscriptions for this topic
-                        if (self.subs.getPtr(topic)) |subs| {
-                            // traverse the list backwards so its safe to drop elements during traversal
-                            var i: usize = subs.items.len;
-                            while (i > 0) {
-                                i -= 1;
-                                const sub = subs.items[i];
-                                for (streams.items) |st| {
-                                    if (sub.sse == st) {
-                                        _ = subs.swapRemove(i);
-                                        std.debug.print("Closing subscriber Stream {*} on topic {s}\n", .{ sub.sse, topic });
-                                    }
-                                }
-                            }
-                        }
-                        // the topic was duped in SubscribeSession, so get rid of it now
-                        // self.gpa.free(topic);
-                    }
-                    topics.deinit(self.gpa);
-                }
-                std.debug.print("Removing topic list for Stream {*}\n", .{stream});
-                _ = self.stream_topics.remove(stream);
-            }
-        }
-
-        pub fn publish(self: *Self, topic: []const u8) !void {
-            return self.publishSession(topic, null);
-        }
-
-        pub fn publishSession(self: *Self, topic: []const u8, session: SessionType) !void {
-            std.debug.print("publishSession topic {s}\n", .{topic});
-            self.mutex.lock();
-            var dead_streams: StreamList = .empty;
-            defer {
-                if (dead_streams.items.len > 0) {
-                    self.purgeList(dead_streams);
-                }
-                dead_streams.deinit(self.gpa);
-                self.mutex.unlock();
-            }
-
-            // std.debug.print("publish on topic {s} for session {?s}\n", .{ topic, session });
-            if (self.subs.getPtr(topic)) |subs| {
-                // traverse the list backwards, so its safe to drop elements during the traversal
-                var i: usize = subs.items.len;
-                while (i > 0) {
-                    i -= 1;
-                    const sub = subs.items[i];
-                    {
-                        sub.sse.mutex.lock();
-                        defer sub.sse.mutex.unlock();
-
-                        if (sub.session == null) {
-                            // we publish everything, without passing a session value
-                            std.debug.print("publish topic {s} to {*}\n", .{ topic, sub.sse });
-                            @call(.auto, sub.action, .{ self.app, sub.sse, null }) catch |err| {
-                                try dead_streams.append(self.gpa, sub.sse);
-                                std.debug.print(" 💀 Stream {*} to be removed because {}\n", .{ sub.sse, err });
-                            };
-                        } else {
-                            if (session) |sv| {
-                                // only publish subs where the session value matches what we ask for
-                                if (sub.session) |ss| {
-                                    if (std.mem.eql(u8, sv, ss)) {
-                                        @call(.auto, sub.action, .{ self.app, sub.sse, ss }) catch |err| {
-                                            if (sub.session) |subsession| self.gpa.free(subsession);
-                                            try dead_streams.append(self.gpa, sub.sse);
-                                            std.debug.print(" 💀 Stream {*} to be removed because {}\n", .{ sub.sse, err });
-                                        };
-                                    }
-                                }
-                            } else {
-                                // publish all
-                                @call(.auto, sub.action, .{ self.app, sub.sse, sub.session }) catch |err| {
-                                    if (sub.session) |subsession| self.gpa.free(subsession);
-                                    try dead_streams.append(self.gpa, sub.sse);
-                                    std.debug.print(" 💀 Stream {*} to be removed because {}\n", .{ sub.sse, err });
-                                };
-                            }
-                        }
-                    }
-                }
-
-                // std.debug.print("Remaining subs on topic {s} :\n", .{topic});
-                // for (subs.items, 0..) |s, ii| {
-                //     std.debug.print("  {d} - {any} Session {?s}\n", .{ ii, s.stream, s.session });
-                // }
-            }
-        }
-    };
-}
-
-pub fn Callback(comptime ctx: type) type {
-    if (ctx == void) {
-        return *const fn (*SSE) anyerror!void;
-    }
-    return *const fn (ctx, *SSE, SessionType) anyerror!void;
-}
-
 test "PatchElementsOptions default values" {
     const opts = PatchElementsOptions{};
     try std.testing.expectEqual(PatchMode.outer, opts.mode);
@@ -1016,39 +571,6 @@ test "NameSpace enum values" {
 
     try std.testing.expect(NameSpace.html != NameSpace.svg);
     try std.testing.expect(NameSpace.svg != NameSpace.mathml);
-}
-
-test "Callback type with void context" {
-    const CallbackVoid = Callback(void);
-    const info = @typeInfo(CallbackVoid);
-
-    try std.testing.expect(info == .Pointer);
-    const fn_info = @typeInfo(info.Pointer.child).Fn;
-    // Should have 1 parameter (just the stream)
-    try std.testing.expectEqual(1, fn_info.params.len);
-}
-
-test "Callback type with App context" {
-    const App = struct { count: usize };
-    const CallbackApp = Callback(*App);
-    const info = @typeInfo(CallbackApp);
-
-    try std.testing.expect(info == .Pointer);
-    const fn_info = @typeInfo(info.Pointer.child).Fn;
-    // Should have 3 parameters (context, stream, session)
-    try std.testing.expectEqual(3, fn_info.params.len);
-}
-
-test "Subscribers can be initialized and deinitialized" {
-    const App = struct { value: i32 };
-    var app = App{ .value = 42 };
-
-    var subs = try Subscribers(*App).init(std.testing.allocator, &app);
-    defer subs.deinit();
-
-    try std.testing.expectEqual(&app, subs.app);
-    try std.testing.expectEqual(0, subs.subs.count());
-    try std.testing.expectEqual(0, subs.stream_topics.count());
 }
 
 test "Message.init sets correct command and options for patchElements" {
