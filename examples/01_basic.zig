@@ -105,11 +105,8 @@ fn patchElementsOpts(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchElementsOpts elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
-    const Opts = struct {
-        morph: []const u8,
-    };
+    const signals = try http.readSignals(struct { morph: []const u8 });
 
-    const signals = try http.readSignals(Opts);
     // jump out if we didnt set anything
     if (signals.morph.len < 1) {
         return;
@@ -303,12 +300,7 @@ fn svgMorph(http: *HTTPRequest) !void {
     std.crypto.random.bytes(std.mem.asBytes(&seed));
     prng.seed(seed);
 
-    const SVGMorphOptions = struct {
-        svgMorph: usize = 1,
-    };
-    const opt = blk: {
-        break :blk http.readSignals(SVGMorphOptions) catch break :blk SVGMorphOptions{};
-    };
+    const opt = try http.readSignals(struct { svgMorph: usize = 1 });
     var sse = try datastar.NewSSESync(http);
     defer sse.close();
 
@@ -377,12 +369,8 @@ fn mathMorph(http: *HTTPRequest) !void {
     var seed: u64 = undefined;
     std.crypto.random.bytes(std.mem.asBytes(&seed));
     prng.seed(seed);
-    const MathMorphOptions = struct {
-        mathmlMorph: usize = 1,
-    };
-    const opt = blk: {
-        break :blk http.readSignals(MathMorphOptions) catch break :blk MathMorphOptions{};
-    };
+
+    const opt = try http.readSignals(struct { mathmlMorph: usize = 1 });
     var sse = try datastar.NewSSESync(http);
     defer sse.close();
 
