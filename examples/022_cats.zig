@@ -164,7 +164,9 @@ pub const App = struct {
 
     pub fn publishCatList(app: *App, stream: std.net.Stream, session: ?[]const u8) !void {
         const t1 = std.time.microTimestamp();
+        datastar.lockStream(stream);
         defer {
+            datastar.unlockStream(stream);
             const t2 = std.time.microTimestamp();
             logz.info().string("event", "publishCatList").int("stream", stream.handle).string("session", session orelse "null").int("elapsed (μs)", t2 - t1).log();
         }
@@ -215,7 +217,9 @@ pub const App = struct {
 
     pub fn publishPrefs(app: *App, stream: std.net.Stream, session: ?[]const u8) !void {
         const t1 = std.time.microTimestamp();
+        datastar.lockStream(stream);
         defer {
+            datastar.unlockStream(stream);
             const t2 = std.time.microTimestamp();
             logz.info().string("event", "publishPrefs").int("stream", stream.handle).string("session", session orelse "null").int("elapsed (μs)", t2 - t1).log();
         }

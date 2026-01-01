@@ -3,7 +3,12 @@
     .version = "0.1.0",
     .minimum_zig_version = "0.16.0-dev",
     .fingerprint = 0xa2c2b3996211dfe7,
-    .dependencies = .{},
+    .dependencies = .{
+        .pubsub = .{
+            .url = "git+https://github.com/zigster64/pubsub.zig#9c114b2d66df3c1e0ee1db5d72495ecf3f30fd08",
+            .hash = "pubsub-0.0.0-6dy2AQZ7AAB7dj1lHPLsDlGY9ejDgrpNxae_FW4kEMn1",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",

@@ -1,5 +1,7 @@
 # Datastar lib for zig 0.16-dev
 
+![Cyberpunk Datastar Zig SDK - Sydney Metro Rail - Leica XV](assets/datastar.zig.jpg)
+
 A Zig library for 0.16 / latest async/concurrent stdlib that conforms to the Datastar SDK specification.
 
 https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
@@ -54,7 +56,7 @@ Try it out.
 If you just want to quickly install this, and try out the demo programs first, do this :
 
 ```
-... get zig 0.15.2 installed on your machine
+... get zig 0.16-dev installed on your machine
 git clone https://github.com/zigster64/datastar.zig
 cd datastar.zig
 zig build
@@ -114,14 +116,6 @@ The source code for the `validation-test` program is in the file `tests/validati
 
 Current version passes all tests.
 
-# Contrib Policy
-
-All contribs welcome.
-
-Please raise a github issue first before adding a PR, and reference the issue in the PR title. 
-
-This allows room for open discussion, as well as tracking of issues opened and closed.
-
 
 # Example Apps
 
@@ -164,16 +158,17 @@ exe.root_module.addImport("datastar", datastar.module("datastar"));
 
 This 0.16 Version of the Datastar SDK includes a basic web server and fast radix-tree based router that uses the stdlib server.
 
-You can optionally use this built-in server if you want to start experiminting with Zig 0.16-dev, as it has no other dependencies outside of stdlib.
+You can use this built-in server if you want to start experiminting with Zig 0.16-dev, as it has no other dependencies outside of stdlib.
 
-To use the built in HTTP server :
+Full example of a main() using the 
 
 ```zig 
 const std = @import("std");
 const datastar = @import("datastar");
-const HTTPRequest = datastar.HTTPRequest;
 
 const Io = std.Io;
+
+const PORT = 8080;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -183,8 +178,9 @@ pub fn main() !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // pass an IO, an allocator, an address, and a port number to listen on
-    var server = try datastar.Server.init(io, allocator, "0.0.0.0", 8080);
+    // Create a server listening on all IP addresses, including IPv6
+    const HTTPServer = datastar.Server(void);
+    var server = try HTTPServer.initIp6(io, allocator, PORT);
     defer server.deinit();
 
     // Add some routes with different http methods
@@ -195,17 +191,23 @@ pub fn main() !void {
     r.post("/patch/opts", patchElementsOpts);
     r.get("/code/:snip", code);
 
-    std.debug.print("Server listening on http://localhost:8080\n", .{});
+    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
+
+    // optional function to reboot the server on re-compile
+    // try this if you are doing local dev - is handy
+    try server.rebooter();
+
+    // everything is set, so start the server up
     try server.run();
 }
 
 // all handlers receive a single HTTPRequest param
-fn index(http: HTTPRequest) !void {
+fn index(http: *datastar.HTTPRequest) !void {
     // http has verbs such as html() to send HTML, json() to send JSON, etc
     return try http.html(@embedFile("index.html"));
 }
 
-fn patchElements(http: HTTPRequest) !void {
+fn patchElements(http: *datastar.HTTPRequest) !void {
     // here we call NewSSE() on the http request, which sets this into 
     // event-stream mode.
     var sse = try datastar.NewSSE(http);
@@ -222,18 +224,27 @@ fn patchElements(http: HTTPRequest) !void {
 
 # Functions
 
-## Cheatsheet of all SDK functions
+## Cheatsheet of all Datastar SDK functions
 
 ```zig
 const datastar = @import("datastar");
 
 // read signals either from GET or POST
-datastar.readSignals(comptime T: type, req: anytype) !T
+http.readSignals(comptime T: type) !T  // for use with the built in HTTPServer, where http = *HTTPRequest
+datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T // generic interface if you are not using the built in HTTPServer
 
 // set the connection to SSE, and return an SSE object
 var sse = datastar.NewSSE(http) !SSE
 var sse = datastar.NewSSESync(http) !SSE
 var sse = datastar.NewSSEOpt(http, sse_options) !SSE
+
+// when you are finished with this connection
+sse.close()
+
+// when you want to keep the connection alive for a long time 
+// then call this in your handler. It will continue until the 
+// browser closes the connection
+sse.keepalive(io, duration)
 
 // patch elements function variants
 sse.patchElements(elementsHTML, elements_options) !void
@@ -248,7 +259,86 @@ sse.patchSignalsWriter(signals_options) *std.Io.Writer
 sse.executeScript(script, script_options) !void
 sse.executeScriptFmt(comptime script, arguments, script_options) !void
 sse.executeScriptWriter(script_options) *std.Io.Writer
+```
 
+## Cheatsheet of all HTTPServer functions
+
+```zig
+// Generate a Server type that has no global context
+Server(void)
+... handler signatures are handler(HTTPRequest)
+// Generate a Server type that takes a type as a global app context
+Server(T)
+server.setContext(ctx)
+... handler signatures are handler(Context, HTTPRequest)
+
+// create a server given an address
+server.init(io, allocator, address, port) !Server
+// create a server listening on all interfaces with IPv6
+server.initIp6(io, allocator, port) !Server
+// server instance cleanup
+server.deinit()
+// run the server
+server.run()
+// tell the whole app to reload and reboot whenever the program is re-compiled
+server.rebooter()
+```
+
+The built in HTTPServer provides a simple fast router 
+
+```zig
+var app = App.init(allocator); // create a global state context for this app
+var server = try datastar.Server(*App).initIp6(io, allocator, PORT);
+var r = server.router;  // get the router from the Server we created
+
+r.get(path, handler)
+r.post(path, handler)
+r.patch(path, handler)
+r.delete(path, handler)
+
+// Generic route
+r.add(method, path, handler)
+
+// Path Parameters example
+r.get("/users/:id", userHandler)
+
+fn userHandler(app: *App, http *HTTPRequest) !void {
+    const id = http.params.get("id");
+    ...
+}
+
+```
+
+When using the built in HTTPServer, all handlers receive either : 
+- a single paramater of type `*HTTPRequest` for servers of type `Server(void)`
+- a context, and a `*HTTPRequest` for servers of type `Server(T)`
+
+
+This HTTPRequest has the following features :
+
+```zig
+// Internal values
+
+http.req     - the *std.http.Server.Request value
+http.io      - which std.Io interface is in use when calling this handler
+http.arena   - a per-request arena for doing allocations in your handler
+http.params  - the route parameters used in the request
+
+// Functions
+http.html(data) !void            // output data as text/html
+http.htmlFmt(format, args) !void // print formatted output data as text/html
+http.json(data) !void            // convert data to JSON and output as application/json
+http.query() ![]const u8         // get the query string for this request 
+http.readSignals(T) !T           // read the signals from the request into struct of given type
+
+// Route Parameters 
+http.params.get(name) ?[]const u8  // get the value of named parameter :name
+```
+
+The built in functions allow you to easily return text/html or application/json. (as well as Datastar SSE actions, as shown below)
+
+If you want to do anything more exotic, just use the `http.req` to construct whatever other response type you might need ... the new 0.16 stdlib
+provides a lot of very low level control options for returning responses there.
 
 # Using the Datastar SDK
 
@@ -293,8 +383,14 @@ Finally, there is a NewSSE variant that takes a set of options, for special case
 
 ## Reading Signals from the request
 
+Using the built in HTTPServer
 ```zig
-    pub fn readSignals(comptime T: type, req: anytype) !T
+    pub fn http.readSignals(comptime T: type) !T
+```
+
+Using other HTTP Server libs - generic version 
+```zig
+    pub fn datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T
 ```
 
 Will take a Type (struct) and a HTTP request, and returns a filled in struct of the requested type.
@@ -316,7 +412,7 @@ Example :
         bar: []const u8,
     };
 
-    const signals = try datastar.readSignals(FooBar, req);
+    const signals = try http.readSignals(FooBar);
     std.debug.print("Request sent foo: {s}, bar: {s}\n", .{signals.foo, signals.bar});
 ```
 
@@ -504,7 +600,6 @@ In this case use `NewSSESync(http)` to set the SSE into Synchronous Mode.
 For example - in the SVGMorph demo, we want to generate a randomized SVG update, then write that to the client 
 browser, then pause for 100ms and repeat, to provide a smooth animation of the SVG.
 
-
 ## Namespaces - SVG and MathML (Datastar RC7 feature)
 
 `patchElements()` works great when morphing small fragments into existing DOM content, using the element ID,
@@ -526,4 +621,50 @@ system that exploits the fact that http.zig allows you to detach sockets from ha
 In Zig 0.16 - The recommended approach here will be to use the Evented IO to create long running coroutines 
 for those handlers that want to subscribe to topics.
 
-For publishing to topics, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
+For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
+
+This version of the SDK also implements the pub/sub  
+
+# Long Lived Connections
+
+When using a pub/sub setup with your application (be it the built in pubsub, or some more robust multi-service messaging backbone), you will want
+your connections to be long lived.
+
+Some examples for different ways to acheive this :
+
+```zig
+// Using the built in pub-sub
+// Sit this thread in a loop that will generate keepalive pings every 30 seconds
+// whilst other threads write data to the same connection via the publish callback
+fn catsList(app: *App, http: *HTTPRequest) !void {
+    var sse = try datastar.NewSSESync(http);
+
+    try app.subscribers.subscribe("cats", &sse, App.publishCatList);
+    sse.keepalive(http.io, .fromSeconds(30));
+    subs.unsubscribe(&sse);
+}
+
+// Using an external pub-sub message queue
+fn catsList(app: *App, http: *HTTPRequest) !void {
+    var sse = try datastar.NewSSESync(http);
+
+    var mq = app.pubsub.subscribe("cats");
+    while (mq.next()) {
+        app.publishCatList();
+    }
+}
+
+
+```
+
+
+
+
+# Contrib Policy
+
+All contribs welcome.
+
+Please raise a github issue first before adding a PR, and reference the issue in the PR title. 
+
+This allows room for open discussion, as well as tracking of issues opened and closed.
+

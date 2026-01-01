@@ -28,7 +28,7 @@ pub fn main() !void {
     try server.run();
 }
 
-fn index(http: HTTPRequest) !void {
+fn index(http: *HTTPRequest) !void {
     try http.html(
         \\See the docs at https://github.com/starfederation/datastar/blob/develop/sdk/tests/README.md
         \\to run the official Datastar SDK test validator against this test suite
@@ -68,7 +68,7 @@ const TestEventAttribute = struct {
     blocking: ?[]const u8 = null,
 };
 
-fn runTest(http: HTTPRequest) !void {
+fn runTest(http: *HTTPRequest) !void {
     // Debug the input packet
     switch (http.req.head.method) {
         .GET => {
