@@ -60,6 +60,7 @@ pub fn build(b: *std.Build) void {
         .{ .file = "tests/validation.zig", .name = "validation-test" },
         .{ .file = "examples/01_basic.zig", .name = "example_1" },
         .{ .file = "examples/02_cats.zig", .name = "example_2" },
+        .{ .file = "examples/03_wildcats.zig", .name = "example_3" },
     };
 
     for (examples) |ex| {

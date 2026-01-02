@@ -29,6 +29,7 @@ pub fn main() !void {
     server.setContext(app);
     defer server.deinit();
 
+    // create the routes
     {
         const r = server.router;
         r.get("/", index);
@@ -49,6 +50,7 @@ fn index(app: *App, http: *HTTPRequest) !void {
 
 fn catsList(app: *App, http: *HTTPRequest) !void {
     var sse = try datastar.NewSSESync(http);
+    defer sse.close();
     try publishCatList(app, &sse);
 
     var mq = try app.pubsub.connect();
