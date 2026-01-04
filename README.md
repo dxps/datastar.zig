@@ -734,7 +734,7 @@ More complex Solution (For HTTP Framework Authors) :
 - Write a HTTPRequest compatible wrapper for your HTTP Framework. If you provide that, then any application code that works with the
   built-in HTTP Server from this package will also work with your adapted HTTP Framework, by swapping over the HTTPRequest implementation.
 
-![Datastar HTTPRequest Interface](docs/Datastar HTTPRequest Interface.pdf)
+![Datastar HTTPRequest Interface](docs/http_request.png)
 
 # Contrib Policy
 
