@@ -20,7 +20,7 @@
   </style>
 </head>
 
-<body class="bg-cyan-700 mt-32">
+<body class="bg-cyan-700 mt-32" data-signals:hotreload=0>
   <!-- Navbar -->
   <div class="navbar bg-sky-950 text-white shadow-md fixed inset-0 z-50 h-32 flex items-center justify-between">
     <div class="flex items-center gap-4 ">
@@ -370,7 +370,7 @@
   <!-- </div>-->
 
   <!-- Resync if the server restarts -->
-  <pre data-init="@post('/hotreload', {payload: {hotreload: $hotreload}})" data-signals:hotreload=0 data-json-signals>
+  <pre data-init="@post('/hotreload')" data-json-signals>
   </pre>
 </body>
 

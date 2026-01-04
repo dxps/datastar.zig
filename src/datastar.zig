@@ -528,8 +528,11 @@ pub const Message = struct {
 pub var hotreload_ms: i64 = 0;
 
 pub fn hotreload(http: *HTTPRequest) !void {
-    const signals = try http.readSignals(struct { hotreload: []const u8 });
-    const signal_hotreload = std.fmt.parseInt(i64, signals.hotreload, 10) catch 0;
+    const signals = http.readSignals(struct { hotreload: i64 }) catch |err| {
+        std.debug.print("failed to read signals on /hotreload {}\n", .{err});
+        return err;
+    };
+    const signal_hotreload = signals.hotreload;
     std.debug.print("/hotreload signals {}\n", .{signals});
 
     // nobody has asked us for this yet, so set it now
