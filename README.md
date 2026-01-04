@@ -83,7 +83,7 @@ Bring up multiple browser windows and watch the bids get updated in realtime to 
 
 ---
 
-`./zig-out/bin/example_22` - a more complex cat aution site, with session based preferences managed at the backend.
+`./zig-out/bin/example_3` - a more complex cat aution site, with session based preferences managed at the backend.
 Bring up multiple browser windows and watch the bids get updated in realtime to all windows.
 Change preferences, and watch that all browser windows in the same session get their preferences updated.
 
@@ -91,7 +91,7 @@ Use a different machine, or browser, or use the 'Profiles' feature in Chrome/Saf
 Note that the bids update in realtime across all browsers, and just the preferences changes are sticky across all 
 windows belonging to the same machine/profile.
 
-![Screenshot of example_22](./docs/images/example_22.png)
+![Screenshot of example_3](./docs/images/example_3.png)
 
 ---
 
@@ -124,7 +124,7 @@ of the api
 
 - example_1  shows using the Datastar API using basic SDK handlers
 - example_2  shows an example multi-user auction site for cats with realtime updates using pub/sub
-- example_22 Same cat auction as above, but with per-user preferences, all handled on the backend only
+- example_3  Same cat auction as above, but with per-user preferences, all handled on the backend only
 
 <!-- - example_3  shows an example multi-user pigeon racing betting site with realtime updates -->
 <!-- - example_4  shows an example multi-game, multi-player TicTacToe site, using the backstage actor framework -->
