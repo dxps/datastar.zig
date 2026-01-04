@@ -213,7 +213,7 @@ fn index(http: *datastar.HTTPRequest) !void {
 fn patchElements(http: *datastar.HTTPRequest) !void {
     // here we call NewSSE() on the http request, which sets this into 
     // event-stream mode.
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close(); // Sends off the SSE event stream, and closes the connection
 
     try sse.patchElementsFmt(
@@ -237,9 +237,9 @@ http.readSignals(comptime T: type) !T  // for use with the built in HTTPServer, 
 datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T // generic interface if you are not using the built in HTTPServer
 
 // set the connection to SSE, and return an SSE object
-var sse = datastar.NewSSE(http) !SSE
-var sse = datastar.NewSSESync(http) !SSE
-var sse = datastar.NewSSEOpt(http, sse_options) !SSE
+var sse = http.NewSSE() !SSE
+var sse = http.NewSSESync() !SSE
+var sse = http.NewSSEOpt(sse_options) !SSE
 
 // when you are finished with this connection
 sse.close()
@@ -347,10 +347,11 @@ provides a lot of very low level control options for returning responses there.
 
 ## The SSE Object
 
-Calling NewSSE, passing a HTTPRequest, will return an object of type SSE.
+Calling NewSSE on the HTTPRequest will return an object of type SSE.
 
 ```zig
-    pub fn NewSSE(http) !SSE 
+   in struct HTTPRequest -
+    pub fn NewSSE(http: *HTTPRequest) !SSE 
 ```
 
 This will configure the connnection for SSE transfers, and provides an object with Datastar methods for
@@ -368,7 +369,7 @@ You can declare your sse object early in the handler, and then set headers / coo
 in the handler. Because actual network updates are batched till the end, everything goes out in the correct order.
 
 ```zig
-    pub fn NewSSESync(http) !SSE 
+    pub fn NewSSESync(http: *HTTPRequest) !SSE 
 ```
 Will create an SSE object that will do immediate Synchronous Writes to the browser as each `patchElements()` call is made.
 
@@ -644,8 +645,24 @@ TODO - Rewrite this to discuss pubsub.zig, as well as other message brokers, inc
 
 The Zig Datastar SDK provides some built in tools to make local development and testing more pleasant.
 
-For hot reloads of the browser, this SDK provides a built in SSE handler that you can apply in your app, 
-that will reload the current browser location as soon as the server restart.
+For hot reloads of the browser, there are a couple of idiomatic ways of dealing with this.
+
+If your application uses any persistent SSE connections to regularly update state, then ideally you should
+write these so that they output enough information to completely update the client content and state.
+
+That could mean sending the complete page (aka a "Fat Morph"), and letting the morph engine on the browser 
+sort out which DOM elements need updating.
+
+When the backend server stops and starts, the persistent SSE is closed, which triggers Datastar in the browser
+to try to re-establish that connection. When it re-establishes, it will send enough updated content and signals to 
+correctly re-render the browser.
+
+Sometimes that is not practical, or sometimes your app has no persistent SSE connection that can do this.
+
+If you have a look in `01_basic.zig` - the code for example_1 ... we dont have any persistent SSE connection
+to do this, so this app adds an endpoint `/hotreload/:id`
+
+When the index page is first requested, it will 
 
 ```zig
 // add this route to your application
@@ -691,6 +708,31 @@ if it succeeds then the server restarts, which triggers the frontend to also hot
 Of course, if you run the zig compiler in --watch mode, then everytime you save, it will
 recompile, which triggers a reload of the server, which triggers a frontend hot reload as 
 well.
+
+# Adapting this SDK to other non-stdlib HTTP libraries
+
+Should be relatively straightforward to do.
+
+Simple Solution :
+
+- Use the HTTP Server & Router abstrations already provided by your HTTP framework.
+- If the response can be a simple `text/html` or `application/json` .. just send that, understanding how Datastar is able
+  to use these to patch both elements and signals, without SSE processing.
+- For SSE packaged responses, use whatever mechanisms your HTTP framework provides to setup an EventStream response,
+  with appropriate chunked encoding and keep-alive connection protocol.
+- Use the top level `datastar.patchElements()` / `datastar.patchSignals()` / `datastar.executeScript()` of the EventStream 
+  generators, which all take raw string data for patching Elements and Scripts, or an arbitrary struct for patching Signals, 
+  and then return a processed string for the event stream.
+- Write the contents of this processed string to the HTTP response.
+- Done !
+
+More complex Solution (For HTTP Framework Authors) :
+
+- This SDK defines an interface for managing HTTP Requests with Datastar, which is documented in `http_request.zig`.
+- The implementation of the Datastar + SEE Processing is contained in `datastar.zig`, and is independent of the HTTPRequest implementation.
+- So ... its only the application code and handlers that are tied to a HTTPRequest implementation, via the interface.
+- Write a HTTPRequest compatible wrapper for your HTTP Framework. If you provide that, then any application code that works with the
+  built-in HTTP Server from this package will also work with your adapted HTTP Framework, by swapping over the HTTPRequest implementation.
 
 # Contrib Policy
 
