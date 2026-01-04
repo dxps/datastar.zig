@@ -57,6 +57,24 @@ pub const ExecuteScriptOptions = struct {
 
 const DEFAULT_BUFFER_SIZE = 8 * 1024;
 
+// patchElements / patchSignals / executeScript options off the main datastar namespace to return strings
+// containing the expanded SSE event stream
+pub fn patchElements(arena: Allocator, elements: []const u8, opt: PatchElementsOptions) !void {
+    _ = arena;
+    _ = elements;
+    _ = opt;
+}
+pub fn patchSignals(arena: Allocator, signals: anytype, opt: PatchSignalsOptions) !void {
+    _ = arena;
+    _ = signals;
+    _ = opt;
+}
+pub fn executeScript(arena: Allocator, script: []const u8, opt: ExecuteScriptOptions) !void {
+    _ = arena;
+    _ = script;
+    _ = opt;
+}
+
 pub const SSEOptions = struct {
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
     sync: bool = false,

@@ -12,7 +12,6 @@ const PORT = 8083;
 const MQSchema = union(enum) {
     cats: void,
     prefs: void,
-    reload: void,
 };
 
 // This example demonstrates a simple auction site that uses
@@ -48,14 +47,7 @@ pub fn main() !void {
     // run the server
     std.debug.print("listening http://localhost:{d}/\n", .{PORT});
     try server.rebooter();
-    _ = try io.concurrent(reload, .{app});
     try server.run();
-}
-
-fn reload(app: *App) void {
-    app.io.sleep(.fromSeconds(1), .real) catch {};
-    std.debug.print("Send reload message to everyone listening for cat updates\n", .{});
-    app.pubsub.publish(.{ .reload = {} }, .all) catch {};
 }
 
 fn index(app: *App, http: *HTTPRequest) !void {
@@ -76,68 +68,25 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
 
     var sse = try datastar.NewSSESync(http);
     defer sse.close();
-    try publishCatList(app, &sse, session);
+    try app.publishAll(&sse, session);
 
     var mq = try app.pubsub.connect();
     defer mq.deinit();
 
+    mq.setFilter(.fromSlice(session));
     try mq.subscribe(.cats);
     try mq.subscribe(.prefs);
-    try mq.subscribe(.reload);
     mq.setTimeout(30 * std.time.ns_per_s);
 
     while (try mq.next()) |event| {
         std.debug.print("Session {s} got event {f}\n", .{ session, event });
         switch (event) {
             .msg => |m| switch (m.topic) {
-                .cats => try publishCatList(app, &sse, session),
-                .prefs => try publishPrefs(app, &sse, session),
-                .reload => try sse.executeScript("window.location.reload()", .{}),
+                .cats => try app.publishCatList(&sse, session),
+                .prefs => try app.publishAll(&sse, session),
             },
             .timeout => try sse.keepalive(),
         }
-    }
-}
-
-fn publishCatList(app: *App, sse: *datastar.SSE, session: []const u8) !void {
-    app.mutex.lock();
-    defer app.mutex.unlock();
-
-    const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
-    app.sortCats(sort_prefs.sort);
-
-    var w = sse.patchElementsWriter(.{});
-    try w.print(
-        \\<div id="cat-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-4 h-full" data-signals="{{ bids: [{d},{d},{d},{d},{d},{d}] }}">
-    , .{
-        app.cats.items[0].bid,
-        app.cats.items[1].bid,
-        app.cats.items[2].bid,
-        app.cats.items[3].bid,
-        app.cats.items[4].bid,
-        app.cats.items[5].bid,
-    });
-
-    for (app.cats.items) |cat| {
-        try cat.render(w);
-    }
-    try w.writeAll(
-        \\</div>
-    );
-    try sse.flush();
-}
-
-fn publishPrefs(app: *App, sse: *datastar.SSE, session: []const u8) !void {
-    // just get the session prefs for the given session, and patch the signals
-    // on the client to update.
-    // So this is called when any other client sharing the same session
-    // changes their preference
-    std.debug.print("Update signals for session {s}\n", .{session});
-    if (app.sessions.get(session)) |prefs| {
-        std.debug.print("New pref is {t}\n", .{prefs.sort});
-        try sse.patchSignals(.{
-            .sort = @tagName(prefs.sort),
-        }, .{}, .{});
     }
 }
 
@@ -171,6 +120,7 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
 
 fn postSort(app: *App, http: *HTTPRequest) !void {
     const session = http.getCookie("session") orelse return error.NoSession;
+    const filter_id: pubsub.FilterId = .fromSlice(session);
 
     app.mutex.lock();
     defer app.mutex.unlock();
@@ -178,7 +128,7 @@ fn postSort(app: *App, http: *HTTPRequest) !void {
     var opt = try http.readSignals(struct { sort: []const u8 });
     const new_sort: SortType = .fromString(opt.sort);
 
-    std.debug.print("Session {s} has requested sort {t}\n", .{ session, new_sort });
+    std.debug.print("postSort session {s} has requested sort {t}\n", .{ session, new_sort });
 
     const prefs: SessionPrefs = app.sessions.get(session) orelse .{ .sort = .id };
     std.debug.print(
@@ -188,9 +138,11 @@ fn postSort(app: *App, http: *HTTPRequest) !void {
 
     try app.sessions.put(session, .{ .sort = new_sort });
 
-    // broadcast updates to people on this session
-    try app.pubsub.publish(.{ .prefs = {} }, .all); // TODO - set filterID = session
-    try app.pubsub.publish(.{ .cats = {} }, .all); // TODO - set filterID = session
+    // broadcast updates to people on this session, telling them their
+    // sort criterior has changed
+    // The consumer of this message will then update both prefs and
+    // print a new cat list
+    try app.pubsub.publish(.{ .prefs = {} }, filter_id);
     try http.json(.{ .sort = new_sort });
 }
 
@@ -227,7 +179,7 @@ const Cat = struct {
             .name = cat.name,
             .img = cat.img,
             .box_type = if (cat.id == 4) "xl" else "full",
-            .comment = if (cat.id == 4) "<i>Dont you dare bid on us .. we are not for sale</i>" else "",
+            .comment = if (cat.id == 4) "" else "",
         });
     }
 };
@@ -333,6 +285,7 @@ const App = struct {
     }
 
     pub fn sortCats(app: *App, sort: SortType) void {
+        std.debug.print("sorting by {} with last sort {}\n", .{ sort, app.last_sort });
         if (app.last_sort == sort) return;
 
         switch (sort) {
@@ -342,6 +295,56 @@ const App = struct {
             .recent => std.sort.block(Cat, app.cats.items, {}, catSortRecent),
         }
         app.last_sort = sort;
+    }
+
+    pub fn publishAll(app: *App, sse: *datastar.SSE, session: []const u8) !void {
+        try app.publishPrefs(sse, session);
+        try app.publishCatList(sse, session);
+    }
+
+    pub fn publishCatList(app: *App, sse: *datastar.SSE, session: []const u8) !void {
+        app.mutex.lock();
+        defer app.mutex.unlock();
+
+        const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
+        std.debug.print("publishCatList for session {s} with prefs {}\n", .{ session, sort_prefs });
+
+        app.sortCats(.id);
+
+        var w = sse.patchElementsWriter(.{});
+        try w.print(
+            \\<div id="cat-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-4 h-full" data-signals="{{ bids: [{d},{d},{d},{d},{d},{d}] }}">
+        , .{
+            app.cats.items[0].bid,
+            app.cats.items[1].bid,
+            app.cats.items[2].bid,
+            app.cats.items[3].bid,
+            app.cats.items[4].bid,
+            app.cats.items[5].bid,
+        });
+        app.sortCats(sort_prefs.sort);
+
+        for (app.cats.items) |cat| {
+            try cat.render(w);
+        }
+        try w.writeAll(
+            \\</div>
+        );
+        try sse.flush();
+    }
+
+    pub fn publishPrefs(app: *App, sse: *datastar.SSE, session: []const u8) !void {
+        // just get the session prefs for the given session, and patch the signals
+        // on the client to update.
+        // So this is called when any other client sharing the same session
+        // changes their preference
+        std.debug.print("Update signals for session {s}\n", .{session});
+        if (app.sessions.get(session)) |prefs| {
+            std.debug.print("New pref is {t}\n", .{prefs.sort});
+            try sse.patchSignals(.{
+                .sort = @tagName(prefs.sort),
+            }, .{}, .{});
+        }
     }
 };
 
