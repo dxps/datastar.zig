@@ -52,15 +52,11 @@ pub fn main() !void {
     r.get("/mathml-morph", mathMorph);
     r.get("/code/:snip", code);
 
-    // router.get("/patch/signals", patchSignals, .{});
-    // router.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing, .{});
-    // router.get("/patch/signals/remove/:names", patchSignalsRemove, .{});
-    // router.get("/executescript/:sample", executeScript, .{});
-    // router.get("/svg-morph", svgMorph, .{});
-    // router.get("/mathml-morph", mathMorph, .{});
+    // Reboot on recompile, and hot reload the client
+    r.post("/hotreload", datastar.hotreload);
+    try server.rebooter();
 
     std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
-    try server.rebooter();
     try server.run();
 }
 
@@ -416,7 +412,7 @@ fn code(http: *HTTPRequest) !void {
     var sse = try datastar.NewSSE(http);
     defer sse.close();
 
-    const selector = try std.fmt.allocPrint(http.arena, "#code-{s}", .{snip});
+    const selector = try std.fmt.allocPrint(http.arena, "#code-{}", .{snip_id});
     var w = sse.patchElementsWriter(.{
         .selector = selector,
         .mode = .append,

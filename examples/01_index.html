@@ -369,6 +369,9 @@
   <!-- 	</div>-->
   <!-- </div>-->
 
+  <!-- Resync if the server restarts -->
+  <pre data-init="@post('/hotreload', {payload: {hotreload: $hotreload}})" data-signals:hotreload=0 data-json-signals>
+  </pre>
 </body>
 
 </html>

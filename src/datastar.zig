@@ -520,6 +520,61 @@ pub const Message = struct {
     }
 };
 
+// use the /hotreload endpoint to provide a long lived SSE connection
+// that will monitor the client to see if it needs a refresh
+// - If the client does not provide the server_milliseconds signal, its new, OK
+// - If the client provides server_milliseconds that matches this on, its OK
+// - If the client provides server_milliseconds that is different, reload it
+pub var hotreload_ms: i64 = 0;
+
+pub fn hotreload(http: *HTTPRequest) !void {
+    const signals = try http.readSignals(struct { hotreload: []const u8 });
+    const signal_hotreload = std.fmt.parseInt(i64, signals.hotreload, 10) catch 0;
+    std.debug.print("/hotreload signals {}\n", .{signals});
+
+    // nobody has asked us for this yet, so set it now
+    if (hotreload_ms == 0) {
+        var clock: std.Io.Clock = .real;
+        var hotreload_now: Io.Timestamp = .zero;
+        hotreload_now = try clock.now(http.io);
+        hotreload_ms = @intCast(@divTrunc(hotreload_now.nanoseconds, std.time.ns_per_ms));
+    }
+
+    var sse = try NewSSESync(http);
+    defer sse.close();
+
+    // If the client doesnt have the signal, then set it now
+    if (signal_hotreload == 0) {
+        std.debug.print("client is new - they are ok\n", .{});
+        try sse.patchSignals(.{ .hotreload = hotreload_ms }, .{}, .{});
+    }
+
+    // If the client provides a timestamp, but its before the current one by more than 15s
+    // then it looks like they were connected to the old instance of the server
+    // so needs a window.location.reload()
+    //
+    // The reason for the 10s gap is because we want multiple instances on the backend
+    // that start within some reasonable timeframe of each other.
+    //
+    // If you need a better scheme for synchronizing multiple instances of the backend,
+    // then maybe use a DB to store the "cluster startup time", and exploit the fact that
+    // resync_timestamp_ms is a public var that you can set on boot for each instance
+    //
+    // Or - dont use this built in handler, just copypaste it and custom roll what you
+    // need for your own sync
+    if (signal_hotreload > 0 and signal_hotreload + 10 * std.time.ms_per_s < hotreload_ms) {
+        std.debug.print("client is ancient {} vs {} - reboot them\n", .{ signal_hotreload, hotreload_ms });
+        try sse.executeScript("window.location.reload()", .{});
+        return;
+    }
+
+    // endless loop till the server shuts down
+    while (true) {
+        try std.Io.sleep(http.io, .fromSeconds(std.time.s_per_min * 5), .real);
+        try sse.keepalive();
+    }
+}
+
 test "PatchElementsOptions default values" {
     const opts = PatchElementsOptions{};
     try std.testing.expectEqual(PatchMode.outer, opts.mode);

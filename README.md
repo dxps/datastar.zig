@@ -191,10 +191,13 @@ pub fn main() !void {
     r.post("/patch/opts", patchElementsOpts);
     r.get("/code/:snip", code);
 
+    // Optional - setup a hot relaad endpoint for the client if the server restarts
+    r.post("/hotreload", datastar.hotreload);
+
     std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
 
     // optional function to reboot the server on re-compile
-    // try this if you are doing local dev - is handy
+    // try this if you are doing local dev
     try server.rebooter();
 
     // everything is set, so start the server up
@@ -630,42 +633,64 @@ for those handlers that want to subscribe to topics.
 
 For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
 
-This version of the SDK also implements the pub/sub  
+This version of the SDK can be used easily with `https://github.com/zigster64/pubsub.zig`, which was custom built 
+to provide an embedded message broker for Datastar Apps in Zig. We will describe the usage of that in the following section.
 
 # Long Lived Connections
 
-When using a pub/sub setup with your application (be it the built in pubsub, or some more robust multi-service messaging backbone), you will want
-your connections to be long lived.
+TODO - Rewrite this to discuss pubsub.zig, as well as other message brokers, including an example of using postgres notify
 
-Some examples for different ways to acheive this :
+# Local Development Helpers
+
+The Zig Datastar SDK provides some built in tools to make local development and testing more pleasant.
+
+For hot reloads of the browser, this SDK provides a built in SSE handler that you can apply in your app, 
+that will reload the current browser location as soon as the server restart.
 
 ```zig
-// Using the built in pub-sub
-// Sit this thread in a loop that will generate keepalive pings every 30 seconds
-// whilst other threads write data to the same connection via the publish callback
-fn catsList(app: *App, http: *HTTPRequest) !void {
-    var sse = try datastar.NewSSESync(http);
-
-    try app.subscribers.subscribe("cats", &sse, App.publishCatList);
-    sse.keepalive(http.io, .fromSeconds(30));
-    subs.unsubscribe(&sse);
-}
-
-// Using an external pub-sub message queue
-fn catsList(app: *App, http: *HTTPRequest) !void {
-    var sse = try datastar.NewSSESync(http);
-
-    var mq = app.pubsub.subscribe("cats");
-    while (mq.next()) {
-        app.publishCatList();
-    }
-}
-
-
+// add this route to your application
+// you can use whatever name for the endpoint you want, just connect it to the 
+// provided handler, like so :
+  r.post("/hotreload", datastar.hotreload); 
 ```
 
+Then add this HTML snippet at the end of your initial index.html (or whatever doc you first load)
+```html
+   Create a long lived SSE connection that will detect refreshes on an outdated server 
+   instance, and force the browser to reload
+  <div data-init="@post('/hotreload', {retryMaxCount: 1000,retryInterval:20, retryMaxWaitMs:200})"></div>
 
+  Same, but with a full debug of signals if you like
+  <pre data-init="@post('/hotreload', {retryMaxCount: 1000,retryInterval:20, retryMaxWaitMs:200})" data-json-signals></pre>
+```
 
+To compliment that, the Zig Datastar SDK provides another utility function you can add 
+to your server code, to automatically reload the server executable whenever it is recompiled.
+
+You can do achieve this by adding this code to your server during startup :
+
+```zig
+    var server = try HTTPServer.initIp6(io, allocator, PORT);
+    defer server.deinit();
+
+    const r = server.router;
+    r.get("/", index);
+    ... add other routes here
+
+    // HOT Reloader setup
+    r.post("/hotreload", datastar.hotreload); // Turn on the Hotreloader
+    try server.rebooter(); // Tells the server to reboot on recompile
+
+    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
+    try server.run();
+```
+
+If you do both of those things, then in dev mode, you just compile in your IDE of choice,
+if it succeeds then the server restarts, which triggers the frontend to also hot reload.
+
+Of course, if you run the zig compiler in --watch mode, then everytime you save, it will
+recompile, which triggers a reload of the server, which triggers a frontend hot reload as 
+well.
 
 # Contrib Policy
 

@@ -278,6 +278,7 @@ pub const HTTPRequest = struct {
                 const reader = req.readerExpectNone(&reader_buffer);
 
                 try reader.readSliceAll(body);
+                std.debug.print("here with body {s}\n", .{body});
                 return std.json.parseFromSliceLeaky(
                     T,
                     arena,
