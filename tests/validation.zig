@@ -88,7 +88,7 @@ fn runTest(http: *HTTPRequest) !void {
     }
 
     // read the TestInput params
-    const testInput = try http.readSignals(TestInput);
+    const testInput = try http.readSignals(struct { events: []TestEvent });
 
     var sse = try datastar.NewSSE(http);
     defer sse.close();

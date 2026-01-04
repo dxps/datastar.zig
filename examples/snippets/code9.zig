@@ -1,11 +1,6 @@
 == svgMorph handler ==
 
-const SVGMorphOptions = struct {
-    svgMorph: usize = 1,
-};
-const opt = blk: {
-    break :blk datastar.readSignals(SVGMorphOptions, req) catch break :blk SVGMorphOptions{ .svgMorph = 5 };
-};
+const opt = try http.readSignals(struct{svgMorph: usize = 1});
 var sse = try datastar.NewSSESync(http);
 defer sse.close();
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const pubsub = @import("pubsub");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
@@ -80,9 +81,7 @@ pub fn Server(comptime Context: type) type {
                     .params = .{},
                 };
 
-                self.router.dispatch(self.ctx, &http) catch |err| {
-                    std.debug.print("Dispatch error {} on socket {}\n", .{ err, conn.socket.handle });
-                };
+                self.router.dispatch(self.ctx, &http) catch return;
 
                 // Anything asking for a Sync SSE connection will detach the request from this inner loop
                 // this is because any SSE created over this connection will be treated as the last action
@@ -160,37 +159,80 @@ pub const HTTPRequest = struct {
     io: Io,
     arena: std.mem.Allocator,
     params: Params,
+    extra_headers: ?[]const std.http.Header = null,
     detach: bool = false, // detached is set if there is any SSE acting on this request - which stops it looping looking for more requests on the same connection
 
-    // return the given data as text/html
-    pub fn html(self: Self, data: []const u8) !void {
-        try self.req.respond(data, .{
-            .extra_headers = &.{.{ .name = "content-type", .value = "text/html" }},
-        });
+    // use this to construct extra_headers when creating any response
+    // it will pull in self.extra_headers, and merge them with the new set
+    // to provide a complete set for the actual request
+    // See http.setCookie() for an example where this is needed
+    pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const std.http.Header {
+        const defaults = &[_]std.http.Header{
+            .{ .name = "connection", .value = "keep-alive" },
+            .{ .name = "x-powered-by", .value = "datastar.zig" },
+        };
+
+        const stored_extras = if (self.extra_headers) |h| h else &[_]std.http.Header{};
+        const total_len = defaults.len + stored_extras.len + extra.len;
+        const combined = try self.arena.alloc(std.http.Header, total_len);
+
+        var cursor: usize = 0;
+
+        @memcpy(combined[cursor..][0..defaults.len], defaults);
+        cursor += defaults.len;
+
+        if (stored_extras.len > 0) {
+            @memcpy(combined[cursor..][0..stored_extras.len], stored_extras);
+            cursor += stored_extras.len;
+        }
+
+        if (extra.len > 0) {
+            @memcpy(combined[cursor..][0..extra.len], extra);
+        }
+
+        return combined;
     }
 
-    pub fn htmlFmt(self: Self, comptime fmt: []const u8, args: anytype) !void {
+    // return the given data as text/html
+    pub fn html(self: *Self, data: []const u8) !void {
+        try self.req.respond(
+            data,
+            .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "text/html" }}) },
+        );
+        // old code
+        // try self.req.respond(data, .{
+        //     .extra_headers = &.{.{ .name = "content-type", .value = "text/html" }},
+        // });
+    }
+
+    pub fn htmlFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
         var buffer: [4096]u8 = undefined;
 
-        var body_writer = try self.req.respondStreaming(&buffer, .{
-            .respond_options = .{
-                .extra_headers = &.{.{ .name = "content-type", .value = "text/html" }},
+        var body_writer = try self.req.respondStreaming(
+            &buffer,
+            .{
+                .respond_options = .{
+                    .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "text/html" }}),
+                },
             },
-        });
+        );
 
         const w = body_writer.writer();
         try w.print(fmt, args);
         try body_writer.end();
     }
 
-    pub fn json(self: Self, data: anytype) !void {
+    pub fn json(self: *Self, data: anytype) !void {
         var buffer: [4096]u8 = undefined;
 
-        var body_writer = try self.req.respondStreaming(&buffer, .{
-            .respond_options = .{
-                .extra_headers = &.{.{ .name = "content-type", .value = "application/json" }},
+        var body_writer = try self.req.respondStreaming(
+            &buffer,
+            .{
+                .respond_options = .{
+                    .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "application/json" }}),
+                },
             },
-        });
+        );
 
         try std.json.Stringify.value(data, .{}, &body_writer.writer);
         try body_writer.end();
@@ -264,6 +306,44 @@ pub const HTTPRequest = struct {
             j += 1;
         }
         return out[0..j];
+    }
+
+    pub fn setCookie(self: *Self, name: []const u8, value: []const u8) !void {
+        const cookie_val = try std.fmt.allocPrint(self.arena, "{s}={s}; Path=/; HttpOnly; SameSite=Lax", .{ name, value });
+        const current_list = if (self.extra_headers) |h| h else &[_]std.http.Header{};
+        const new_list = try self.arena.alloc(std.http.Header, current_list.len + 1);
+
+        if (current_list.len > 0) {
+            @memcpy(new_list[0..current_list.len], current_list);
+        }
+
+        new_list[current_list.len] = .{ .name = "set-cookie", .value = cookie_val };
+
+        self.extra_headers = new_list;
+    }
+
+    pub fn getCookie(self: *Self, name: []const u8) ?[]const u8 {
+        var it = self.req.iterateHeaders();
+        while (it.next()) |header| {
+            // Find the "Cookie" header (case-insensitive check)
+            if (std.ascii.eqlIgnoreCase(header.name, "cookie")) {
+
+                // Tokenize by ';' to handle "key1=val1; key2=val2"
+                var cookie_it = std.mem.tokenizeScalar(u8, header.value, ';');
+                while (cookie_it.next()) |pair| {
+                    const trimmed = std.mem.trim(u8, pair, " ");
+
+                    if (std.mem.indexOfScalar(u8, trimmed, '=')) |idx| {
+                        const key = trimmed[0..idx];
+
+                        if (std.mem.eql(u8, key, name)) {
+                            return trimmed[idx + 1 ..];
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
 };
 
@@ -406,14 +486,22 @@ pub fn Router(comptime Context: type) type {
             }
 
             http.params = params;
+            std.debug.print("dispatch {t} {s}\n", .{ http.req.head.method, http.req.head.target });
 
             const method_idx = @intFromEnum(http.req.head.method);
             if (current.handlers[method_idx]) |h| {
+                // TODO - in here, if we call any non-GET handler, we should
+                // check that the handler actually sent a response
+                // otherwise mock up a response for this
                 if (Context == void) {
-                    return h(http);
+                    return h(http) catch {
+                        return http.req.respond("Error", .{ .status = .internal_server_error });
+                    };
                 } else {
                     if (ctx) |c| {
-                        return h(c, http);
+                        return h(c, http) catch {
+                            return http.req.respond("Error", .{ .status = .internal_server_error });
+                        };
                     }
                     return error.NoContext;
                 }

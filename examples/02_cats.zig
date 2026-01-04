@@ -1,5 +1,4 @@
 const std = @import("std");
-const logz = @import("logz");
 const datastar = @import("datastar");
 const pubsub = datastar.pubsub;
 
@@ -30,6 +29,7 @@ pub fn main() !void {
     server.setContext(app);
     defer server.deinit();
 
+    // create the routes
     {
         const r = server.router;
         r.get("/", index);
@@ -50,6 +50,7 @@ fn index(app: *App, http: *HTTPRequest) !void {
 
 fn catsList(app: *App, http: *HTTPRequest) !void {
     var sse = try datastar.NewSSESync(http);
+    defer sse.close();
     try publishCatList(app, &sse);
 
     var mq = try app.pubsub.connect();
@@ -101,13 +102,8 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
         return error.InvalidID;
     }
 
-    const Bids = struct {
-        bids: []usize,
-    };
-    const signals = try http.readSignals(Bids);
-    // std.debug.print("bids {any}\n", .{signals.bids});
+    const signals = try http.readSignals(struct { bids: []usize });
     const new_bid = signals.bids[id];
-    // std.debug.print("new bid {}\n", .{new_bid});
     app.cats.items[id].bid = new_bid;
 
     // update any screens subscribed to "cats"
@@ -151,10 +147,6 @@ const Cats = std.ArrayList(Cat);
 // Schema for messages passed over pubsub
 const MQSchema = union(enum) {
     cats: void,
-
-    pub fn clone(self: MQSchema, _: Allocator) !MQSchema {
-        return self;
-    }
 };
 
 const App = struct {

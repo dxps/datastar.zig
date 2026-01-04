@@ -5,8 +5,9 @@
     .fingerprint = 0xa2c2b3996211dfe7,
     .dependencies = .{
         .pubsub = .{
-            .url = "git+https://github.com/zigster64/pubsub.zig#9c114b2d66df3c1e0ee1db5d72495ecf3f30fd08",
-            .hash = "pubsub-0.0.0-6dy2AQZ7AAB7dj1lHPLsDlGY9ejDgrpNxae_FW4kEMn1",
+            // .path = "../pubsub.zig",
+            .url = "git+https://github.com/zigster64/pubsub.zig#56d36eebb7d3ca877374e1af4a702163803d3708",
+            .hash = "pubsub-0.0.0-6dy2AZ9_AAB9BtgLy_SedPDb2SHiMjORuT1ybJ1TCITc",
         },
     },
     .paths = .{
