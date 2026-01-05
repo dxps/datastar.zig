@@ -336,6 +336,7 @@ http.readSignals(T) !T           // read the signals from the request into struc
 
 // Route Parameters 
 http.params.get(name) ?[]const u8  // get the value of named parameter :name
+http.params.getInt(T, name) ?T     // get the value of named parameter :name as an Integer
 ```
 
 The built in functions allow you to easily return text/html or application/json. (as well as Datastar SSE actions, as shown below)

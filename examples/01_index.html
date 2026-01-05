@@ -8,19 +8,10 @@
     src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
   <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-  <style>
-    pre,
-    code {
-      white-space: pre-line;
-    }
-
-    body {
-      height: calc(100vh - 128px);
-    }
-  </style>
+  <link href="/style.css" rel="stylesheet" type="text/css" />
 </head>
 
-<body class="bg-cyan-700 mt-32" data-signals:hotreload=0>
+<body class="bg-cyan-700 mt-32">
   <!-- Navbar -->
   <div class="navbar bg-sky-950 text-white shadow-md fixed inset-0 z-50 h-32 flex items-center justify-between">
     <div class="flex items-center gap-4 ">
@@ -370,7 +361,7 @@
   <!-- </div>-->
 
   <!-- Resync if the server restarts -->
-  <pre data-init="@post('/hotreload')" data-json-signals>
+  <pre data-init="@post('/hotreload/{[hotreload_id]}')" data-json-signals>
   </pre>
 </body>
 

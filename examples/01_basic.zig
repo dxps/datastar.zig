@@ -22,6 +22,8 @@ fn getCountAndIncrement() usize {
 
 const HTTPServer = datastar.Server(void);
 
+var hotreload_id: i64 = 0;
+
 pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     const allocator = gpa.allocator();
@@ -33,11 +35,15 @@ pub fn main() !void {
     defer threaded.deinit();
     const io = threaded.io();
 
+    // set the unique ID of this server = timestamp in milliseconds
+    hotreload_id = (try Io.Clock.real.now(io)).toMilliseconds();
+
     var server = try HTTPServer.initIp6(io, allocator, PORT);
     defer server.deinit();
 
     const r = server.router;
     r.get("/", index);
+    r.get("/style.css", styleCss);
 
     r.get("/text-html", textHtml);
     r.get("/patch", patchElements);
@@ -53,7 +59,7 @@ pub fn main() !void {
     r.get("/code/:snip", code);
 
     // Reboot on recompile, and hot reload the client
-    r.post("/hotreload", datastar.hotreload);
+    r.post("/hotreload/:id", hotreload);
     try server.rebooter();
 
     std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
@@ -64,7 +70,30 @@ fn index(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("Index elapsed {}(ns)\n", .{t1.read()});
 
-    return http.html(@embedFile("01_index.html"));
+    return http.htmlFmt(@embedFile("01_index.html"), .{ .hotreload_id = hotreload_id });
+}
+
+fn styleCss(http: *HTTPRequest) !void {
+    return http.html(@embedFile("style.css"));
+}
+
+fn hotreload(http: *HTTPRequest) !void {
+    const id = http.params.getInt(i64, "id") orelse 0;
+    var sse = try http.NewSSESync();
+    defer sse.close();
+    if (id != hotreload_id) {
+        std.debug.print("Client is stale - reload them\n", .{});
+        try sse.executeScript("window.location.reload()", .{});
+    }
+
+    // client is connected to the correct app, so just wait forever
+    // with regular 1minute keepalives
+    // When the server restarts, the client will hit this endpoint again
+    // with the old hotreload_id, causing a full page refresh
+    while (true) {
+        try http.io.sleep(.fromSeconds(60), .real);
+        try sse.keepalive();
+    }
 }
 
 fn textHtml(http: *HTTPRequest) !void {
@@ -82,7 +111,7 @@ fn patchElements(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchElements elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
     try sse.patchElementsFmt(
@@ -108,7 +137,7 @@ fn patchElementsOpts(http: *HTTPRequest) !void {
         return;
     }
 
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
     // read the signals to work out which options to set, checking the name of the
@@ -148,7 +177,7 @@ fn patchElementsOptsReset(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchElementsOptsReset elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
     try sse.patchElements(@embedFile("01_index_opts.html"), .{
@@ -173,7 +202,7 @@ fn patchSignals(http: *HTTPRequest) !void {
     defer std.debug.print("patchSignals elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
     // Outputs a formatted patch-signals SSE response to update signals
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
     const foo = prng.random().intRangeAtMost(u8, 0, 255);
@@ -189,7 +218,7 @@ fn patchSignalsOnlyIfMissing(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchSignalsOnlyIfMissing elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
     // this will set the following signals
@@ -212,10 +241,10 @@ fn patchSignalsRemove(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchSignalsOnlyIfMissing elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
-    const signals_to_remove: []const u8 = http.params.get("names").?;
+    const signals_to_remove: []const u8 = http.params.get("names") orelse return error.InvalidSignalName;
     var names_iter = std.mem.splitScalar(u8, signals_to_remove, ',');
 
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
     var w = sse.patchSignalsWriter(.{});
@@ -252,10 +281,9 @@ fn executeScript(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("executeScript elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
-    const sample = http.params.get("sample").?;
-    const sample_id = try std.fmt.parseInt(u8, sample, 10);
+    const sample = http.params.getInt(u8, "sample") orelse 0;
 
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
     // make up an array of attributes for this
@@ -264,7 +292,7 @@ fn executeScript(http: *HTTPRequest) !void {
     try attribs.put("trace", "true");
     try attribs.put("aardvark", "should appear last, not first");
 
-    switch (sample_id) {
+    switch (sample) {
         1 => {
             try sse.executeScript("console.log('Running from executeScript() directly');", .{});
         },
@@ -279,10 +307,10 @@ fn executeScript(http: *HTTPRequest) !void {
             );
         },
         3 => {
-            try sse.executeScriptFmt("console.log('Using formatted print {d}');", .{sample_id}, .{});
+            try sse.executeScriptFmt("console.log('Using formatted print {d}');", .{sample}, .{});
         },
         else => {
-            try sse.executeScriptFmt("console.log('Unknown SampleID {d}');", .{sample_id}, .{});
+            try sse.executeScriptFmt("console.log('Unknown SampleID {d}');", .{sample}, .{});
         },
     }
 }
@@ -297,7 +325,7 @@ fn svgMorph(http: *HTTPRequest) !void {
     prng.seed(seed);
 
     const opt = try http.readSignals(struct { svgMorph: usize = 1 });
-    var sse = try datastar.NewSSESync(http);
+    var sse = try http.NewSSESync();
     defer sse.close();
 
     for (1..opt.svgMorph + 1) |_| {
@@ -367,7 +395,7 @@ fn mathMorph(http: *HTTPRequest) !void {
     prng.seed(seed);
 
     const opt = try http.readSignals(struct { mathmlMorph: usize = 1 });
-    var sse = try datastar.NewSSESync(http);
+    var sse = try http.NewSSESync();
     defer sse.close();
 
     if (opt.mathmlMorph == 1) {
@@ -399,20 +427,19 @@ fn mathMorph(http: *HTTPRequest) !void {
 }
 
 fn code(http: *HTTPRequest) !void {
-    const snip = http.params.get("snip") orelse "1";
-    const snip_id = try std.fmt.parseInt(u8, snip, 10);
+    const snip = http.params.getInt(u8, "snip") orelse 1;
 
-    if (snip_id < 1 or snip_id > snippets.len) {
-        std.debug.print("Invalid code snippet {}, range is 1-{}\n", .{ snip_id, snippets.len });
+    if (snip < 1 or snip > snippets.len) {
+        std.debug.print("Invalid code snippet {}, range is 1-{}\n", .{ snip, snippets.len });
         return error.InvalidCodeSnippet;
     }
 
-    const data = snippets[snip_id - 1];
+    const data = snippets[snip - 1];
 
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
-    const selector = try std.fmt.allocPrint(http.arena, "#code-{}", .{snip_id});
+    const selector = try std.fmt.allocPrint(http.arena, "#code-{}", .{snip});
     var w = sse.patchElementsWriter(.{
         .selector = selector,
         .mode = .append,

@@ -33,6 +33,7 @@ pub fn main() !void {
     {
         const r = server.router;
         r.get("/", index);
+        r.get("/style.css", styleCss);
         r.get("/cats", catsList);
         r.post("/bid/:id", postBid);
     }
@@ -43,13 +44,16 @@ pub fn main() !void {
     try server.run();
 }
 
-fn index(app: *App, http: *HTTPRequest) !void {
-    _ = app;
+fn index(_: *App, http: *HTTPRequest) !void {
     try http.html(@embedFile("02_index.html"));
 }
 
+fn styleCss(_: *App, http: *HTTPRequest) !void {
+    return http.html(@embedFile("style.css"));
+}
+
 fn catsList(app: *App, http: *HTTPRequest) !void {
-    var sse = try datastar.NewSSESync(http);
+    var sse = try http.NewSSESync();
     defer sse.close();
     try publishCatList(app, &sse);
 
@@ -95,8 +99,7 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
         app.mutex.unlock();
     }
 
-    const id_param = http.params.get("id") orelse "0";
-    const id = try std.fmt.parseInt(usize, id_param, 10);
+    const id = http.params.getInt(usize, "id") orelse 0;
 
     if (id < 0 or id >= app.cats.items.len) {
         return error.InvalidID;

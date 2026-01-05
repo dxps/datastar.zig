@@ -1,5 +1,10 @@
 const std = @import("std");
 const pubsub = @import("pubsub");
+const datastar = @import("datastar.zig");
+
+const HTTPRequest = @import("http_request.zig");
+const Params = @import("params.zig");
+
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
@@ -9,7 +14,7 @@ pub fn Server(comptime Context: type) type {
 
         io: Io,
         allocator: Allocator,
-        server: std.Io.net.Server = undefined,
+        server: Io.net.Server = undefined,
         router: *Router(Context),
         ctx: ?Context = null,
 
@@ -152,225 +157,6 @@ pub fn RouteHandler(comptime Context: type) type {
     }
 }
 
-pub const HTTPRequest = struct {
-    const Self = @This();
-
-    req: *std.http.Server.Request,
-    io: Io,
-    arena: std.mem.Allocator,
-    params: Params,
-    extra_headers: ?[]const std.http.Header = null,
-    detach: bool = false, // detached is set if there is any SSE acting on this request - which stops it looping looking for more requests on the same connection
-
-    // use this to construct extra_headers when creating any response
-    // it will pull in self.extra_headers, and merge them with the new set
-    // to provide a complete set for the actual request
-    // See http.setCookie() for an example where this is needed
-    pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const std.http.Header {
-        const defaults = &[_]std.http.Header{
-            .{ .name = "connection", .value = "keep-alive" },
-            .{ .name = "x-powered-by", .value = "datastar.zig" },
-        };
-
-        const stored_extras = if (self.extra_headers) |h| h else &[_]std.http.Header{};
-        const total_len = defaults.len + stored_extras.len + extra.len;
-        const combined = try self.arena.alloc(std.http.Header, total_len);
-
-        var cursor: usize = 0;
-
-        @memcpy(combined[cursor..][0..defaults.len], defaults);
-        cursor += defaults.len;
-
-        if (stored_extras.len > 0) {
-            @memcpy(combined[cursor..][0..stored_extras.len], stored_extras);
-            cursor += stored_extras.len;
-        }
-
-        if (extra.len > 0) {
-            @memcpy(combined[cursor..][0..extra.len], extra);
-        }
-
-        return combined;
-    }
-
-    // return the given data as text/html
-    pub fn html(self: *Self, data: []const u8) !void {
-        try self.req.respond(
-            data,
-            .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "text/html" }}) },
-        );
-        // old code
-        // try self.req.respond(data, .{
-        //     .extra_headers = &.{.{ .name = "content-type", .value = "text/html" }},
-        // });
-    }
-
-    pub fn htmlFmt(self: *Self, comptime fmt: []const u8, args: anytype) !void {
-        var buffer: [4096]u8 = undefined;
-
-        var body_writer = try self.req.respondStreaming(
-            &buffer,
-            .{
-                .respond_options = .{
-                    .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "text/html" }}),
-                },
-            },
-        );
-
-        const w = body_writer.writer();
-        try w.print(fmt, args);
-        try body_writer.end();
-    }
-
-    pub fn json(self: *Self, data: anytype) !void {
-        var buffer: [4096]u8 = undefined;
-
-        var body_writer = try self.req.respondStreaming(
-            &buffer,
-            .{
-                .respond_options = .{
-                    .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "application/json" }}),
-                },
-            },
-        );
-
-        try std.json.Stringify.value(data, .{}, &body_writer.writer);
-        try body_writer.end();
-    }
-
-    pub fn query(self: Self) ![]const u8 {
-        const target = self.req.head.target;
-        const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
-        return target[query_idx + 1 ..];
-    }
-
-    pub fn readSignals(self: Self, comptime T: type) !T {
-        const req = self.req;
-        const arena = self.arena;
-
-        switch (req.head.method) {
-            .GET => {
-                const target = req.head.target;
-                const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
-                const query_string = target[query_idx + 1 ..];
-
-                var it = std.mem.tokenizeScalar(u8, query_string, '&');
-                while (it.next()) |pair| {
-                    if (std.mem.startsWith(u8, pair, "datastar=")) {
-                        const encoded_val = pair["datastar=".len..];
-                        const decoded = try urlDecode(arena, encoded_val);
-
-                        return std.json.parseFromSliceLeaky(
-                            T,
-                            arena,
-                            decoded,
-                            .{ .ignore_unknown_fields = true },
-                        );
-                    }
-                }
-                return error.MissingDatastarKey;
-            },
-            else => {
-                const length = req.head.content_length orelse return error.MissingContentLength;
-                const body = try arena.alloc(u8, @intCast(length));
-
-                var reader_buffer: [8192]u8 = undefined;
-                const reader = req.readerExpectNone(&reader_buffer);
-
-                try reader.readSliceAll(body);
-                return std.json.parseFromSliceLeaky(
-                    T,
-                    arena,
-                    body,
-                    .{ .ignore_unknown_fields = true },
-                );
-            },
-        }
-    }
-
-    fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-        var out = try allocator.alloc(u8, input.len);
-        var i: usize = 0;
-        var j: usize = 0;
-        while (i < input.len) {
-            if (input[i] == '%' and i + 2 < input.len) {
-                out[j] = std.fmt.parseInt(u8, input[i + 1 .. i + 3], 16) catch input[i];
-                i += 3;
-            } else if (input[i] == '+') {
-                out[j] = ' ';
-                i += 1;
-            } else {
-                out[j] = input[i];
-                i += 1;
-            }
-            j += 1;
-        }
-        return out[0..j];
-    }
-
-    pub fn setCookie(self: *Self, name: []const u8, value: []const u8) !void {
-        const cookie_val = try std.fmt.allocPrint(self.arena, "{s}={s}; Path=/; HttpOnly; SameSite=Lax", .{ name, value });
-        const current_list = if (self.extra_headers) |h| h else &[_]std.http.Header{};
-        const new_list = try self.arena.alloc(std.http.Header, current_list.len + 1);
-
-        if (current_list.len > 0) {
-            @memcpy(new_list[0..current_list.len], current_list);
-        }
-
-        new_list[current_list.len] = .{ .name = "set-cookie", .value = cookie_val };
-
-        self.extra_headers = new_list;
-    }
-
-    pub fn getCookie(self: *Self, name: []const u8) ?[]const u8 {
-        var it = self.req.iterateHeaders();
-        while (it.next()) |header| {
-            // Find the "Cookie" header (case-insensitive check)
-            if (std.ascii.eqlIgnoreCase(header.name, "cookie")) {
-
-                // Tokenize by ';' to handle "key1=val1; key2=val2"
-                var cookie_it = std.mem.tokenizeScalar(u8, header.value, ';');
-                while (cookie_it.next()) |pair| {
-                    const trimmed = std.mem.trim(u8, pair, " ");
-
-                    if (std.mem.indexOfScalar(u8, trimmed, '=')) |idx| {
-                        const key = trimmed[0..idx];
-
-                        if (std.mem.eql(u8, key, name)) {
-                            return trimmed[idx + 1 ..];
-                        }
-                    }
-                }
-            }
-        }
-        return null;
-    }
-};
-
-pub const Params = struct {
-    names: [8][]const u8 = undefined,
-    values: [8][]const u8 = undefined,
-    count: usize = 0,
-
-    pub fn get(self: Params, name: []const u8) ?[]const u8 {
-        for (0..self.count) |i| {
-            if (std.mem.eql(u8, self.names[i], name)) return self.values[i];
-        }
-        return null;
-    }
-
-    pub fn format(self: Params, writer: *std.Io.Writer) !void {
-        try writer.writeAll("Params { ");
-        for (0..self.count) |i| {
-            if (i > 0) {
-                try writer.writeAll(", ");
-            }
-            try writer.print("  {s}: \"{s}\"", .{ self.names[i], self.values[i] });
-        }
-        try writer.writeAll("}");
-    }
-};
-
 pub fn Router(comptime Context: type) type {
     return struct {
         const Self = @This();
@@ -486,7 +272,10 @@ pub fn Router(comptime Context: type) type {
             }
 
             http.params = params;
-            std.debug.print("dispatch {t} {s}\n", .{ http.req.head.method, http.req.head.target });
+            var path = http.req.head.target;
+            const q = std.mem.indexOfScalar(u8, path, '?') orelse path.len;
+            path = path[0..q];
+            std.debug.print("{t} {s}\n", .{ http.req.head.method, path });
 
             const method_idx = @intFromEnum(http.req.head.method);
             if (current.handlers[method_idx]) |h| {

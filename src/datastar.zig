@@ -4,9 +4,9 @@ pub const pubsub = @import("pubsub");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-const server_module = @import("server.zig");
-pub const Server = server_module.Server;
-pub const HTTPRequest = server_module.HTTPRequest;
+pub const Server = @import("server.zig").Server;
+pub const HTTPRequest = @import("http_request.zig");
+pub const Params = @import("params.zig");
 
 pub const Command = enum {
     patchElements,
@@ -55,7 +55,7 @@ pub const ExecuteScriptOptions = struct {
     retry_duration: ?i64 = null,
 };
 
-const DEFAULT_BUFFER_SIZE = 8 * 1024;
+pub const DEFAULT_BUFFER_SIZE = 8 * 1024;
 
 // patchElements / patchSignals / executeScript options off the main datastar namespace to return strings
 // containing the expanded SSE event stream
@@ -125,8 +125,7 @@ pub const SSE = struct {
     // Sends a keepalive packet on a connected SSE
     // this is a HTML patchElement with no id, sending the time elapsed inside the SSE, in seconds
     pub fn keepalive(self: *SSE) !void {
-        const clock: std.Io.Clock = .real;
-        const now = try clock.now(self.io);
+        const now = try Io.Clock.real.now(self.io);
         try self.patchElementsFmt(
             \\<keepalive data-time="{}" />
         , .{self.start_time.durationTo(now).toSeconds()}, .{});
@@ -271,55 +270,6 @@ pub fn readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Se
             );
         },
     }
-}
-pub fn NewSSE(http: *HTTPRequest) !SSE {
-    return NewSSEOpt(http, .{});
-}
-
-pub fn NewSSESync(http: *HTTPRequest) !SSE {
-    return NewSSEOpt(http, .{ .sync = true });
-}
-
-pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
-    const buf_size = if (opt.buffer_size != 0) opt.buffer_size else DEFAULT_BUFFER_SIZE;
-    const buf = try http.arena.alloc(u8, buf_size);
-
-    // IF we are text/event-stream AND we have no content-length (chunked encoding)
-    // THEN detach the request from the connection - because the browser will never queue
-    // another request over this same connection
-    if (opt.sync) {
-        http.detach = true;
-    }
-
-    // need to create a BodyWriter on the heap, because we use it after this
-    // because this is on the arena owned by the handleConnection->request ...
-    // that means the handler needs to stay alive for as long we expect to keep
-    // using this bodyWriter. This has implications for pub/sub
-    const res = try http.arena.create(std.http.BodyWriter);
-    res.* = try http.req.respondStreaming(
-        buf,
-        .{ .respond_options = .{ .extra_headers = &.{
-            .{ .name = "content-type", .value = "text/event-stream; charset=UTF-8" },
-            .{ .name = "cache-control", .value = "no-cache" },
-        } } },
-    );
-    const allocating_writer = blk: {
-        if (opt.buffer_size == 0) break :blk Io.Writer.Allocating.init(http.arena);
-        break :blk Io.Writer.Allocating.initCapacity(http.arena, opt.buffer_size) catch Io.Writer.Allocating.init(http.arena);
-    };
-    if (opt.sync) {
-        try res.flush();
-    }
-
-    const clock: std.Io.Clock = .real;
-    return SSE{
-        .stream = res,
-        .output_buffer = allocating_writer,
-        .buffer_size = opt.buffer_size,
-        .sync = opt.sync,
-        .io = http.io,
-        .start_time = try clock.now(http.io),
-    };
 }
 
 pub const Message = struct {
@@ -519,64 +469,6 @@ pub const Message = struct {
         return bytes.len;
     }
 };
-
-// use the /hotreload endpoint to provide a long lived SSE connection
-// that will monitor the client to see if it needs a refresh
-// - If the client does not provide the server_milliseconds signal, its new, OK
-// - If the client provides server_milliseconds that matches this on, its OK
-// - If the client provides server_milliseconds that is different, reload it
-pub var hotreload_ms: i64 = 0;
-
-pub fn hotreload(http: *HTTPRequest) !void {
-    const signals = http.readSignals(struct { hotreload: i64 }) catch |err| {
-        std.debug.print("failed to read signals on /hotreload {}\n", .{err});
-        return err;
-    };
-    const signal_hotreload = signals.hotreload;
-    std.debug.print("/hotreload signals {}\n", .{signals});
-
-    // nobody has asked us for this yet, so set it now
-    if (hotreload_ms == 0) {
-        var clock: std.Io.Clock = .real;
-        var hotreload_now: Io.Timestamp = .zero;
-        hotreload_now = try clock.now(http.io);
-        hotreload_ms = @intCast(@divTrunc(hotreload_now.nanoseconds, std.time.ns_per_ms));
-    }
-
-    var sse = try NewSSESync(http);
-    defer sse.close();
-
-    // If the client doesnt have the signal, then set it now
-    if (signal_hotreload == 0) {
-        std.debug.print("client is new - they are ok\n", .{});
-        try sse.patchSignals(.{ .hotreload = hotreload_ms }, .{}, .{});
-    }
-
-    // If the client provides a timestamp, but its before the current one by more than 15s
-    // then it looks like they were connected to the old instance of the server
-    // so needs a window.location.reload()
-    //
-    // The reason for the 10s gap is because we want multiple instances on the backend
-    // that start within some reasonable timeframe of each other.
-    //
-    // If you need a better scheme for synchronizing multiple instances of the backend,
-    // then maybe use a DB to store the "cluster startup time", and exploit the fact that
-    // resync_timestamp_ms is a public var that you can set on boot for each instance
-    //
-    // Or - dont use this built in handler, just copypaste it and custom roll what you
-    // need for your own sync
-    if (signal_hotreload > 0 and signal_hotreload + 10 * std.time.ms_per_s < hotreload_ms) {
-        std.debug.print("client is ancient {} vs {} - reboot them\n", .{ signal_hotreload, hotreload_ms });
-        try sse.executeScript("window.location.reload()", .{});
-        return;
-    }
-
-    // endless loop till the server shuts down
-    while (true) {
-        try std.Io.sleep(http.io, .fromSeconds(std.time.s_per_min * 5), .real);
-        try sse.keepalive();
-    }
-}
 
 test "PatchElementsOptions default values" {
     const opts = PatchElementsOptions{};

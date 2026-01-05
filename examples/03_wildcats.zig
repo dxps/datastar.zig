@@ -39,6 +39,7 @@ pub fn main() !void {
     {
         const r = server.router;
         r.get("/", index);
+        r.get("/style.css", styleCss);
         r.get("/cats", catsList);
         r.post("/bid/:id", postBid);
         r.post("/sort", postSort);
@@ -61,12 +62,16 @@ fn index(app: *App, http: *HTTPRequest) !void {
     try http.html(@embedFile("03_index.html"));
 }
 
+fn styleCss(_: *App, http: *HTTPRequest) !void {
+    return http.html(@embedFile("style.css"));
+}
+
 fn catsList(app: *App, http: *HTTPRequest) !void {
     const session = http.getCookie("session") orelse return error.NoCookie;
     const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
     std.debug.print("catList for session {s} with prefs {t}\n", .{ session, sort_prefs.sort });
 
-    var sse = try datastar.NewSSESync(http);
+    var sse = try http.NewSSESync();
     defer sse.close();
     try app.publishAll(&sse, session);
 
@@ -92,8 +97,7 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
 
 fn postBid(app: *App, http: *HTTPRequest) !void {
     // get the numeric cat_id from the request params POST /bid/:id
-    const id_param = http.params.get("id").?;
-    const cat_id = try std.fmt.parseInt(usize, id_param, 10);
+    const cat_id = http.params.getInt(usize, "id") orelse return error.InvalidCat;
 
     if (cat_id < 0 or cat_id >= app.cats.items.len) {
         return error.InvalidID;
@@ -106,8 +110,7 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
     const signals = try http.readSignals(struct { bids: []usize });
     const new_bid = signals.bids[cat_id];
 
-    const clock: std.Io.Clock = .real;
-    const now = try clock.now(app.io);
+    const now = try Io.Clock.real.now(app.io);
 
     app.cats.items[cat_id].bid = new_bid;
     app.cats.items[cat_id].ts = now;
