@@ -7,7 +7,7 @@ if (signals.morph.len < 1) {
     return;
 }
 
-var sse = try datastar.NewSSE(http);
+var sse = try NewSSE();
 defer sse.close();
 
 // read the signals to work out which options to set, checking the name of the

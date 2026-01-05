@@ -3,7 +3,7 @@
 const sample = http.params.get("sample").?;
 const sample_id = try std.fmt.parseInt(u8, sample, 10);
 
-var sse = try datastar.NewSSE(http);
+var sse = try http.NewSSE();
 defer sse.close();
 
 switch (sample_id) {

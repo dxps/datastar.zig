@@ -1,6 +1,6 @@
 == patchSignalsOnlyIfMissing handler ==
 
-var sse = try datastar.NewSSE(http);
+var sse = try http.NewSSE();
 defer sse.close();
 
 const foo = prng.random().intRangeAtMost(u8, 1, 100);

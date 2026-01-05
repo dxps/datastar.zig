@@ -3,7 +3,7 @@
 const signals_to_remove: []const u8 = http.params.get("names").?;
 var names_iter = std.mem.splitScalar(u8, signals_to_remove, ',');
 
-var sse = try datastar.NewSSE(http);
+var sse = try http.NewSSE();
 defer sse.close();
 
 var w = sse.patchSignalsWriter(.{});
