@@ -64,8 +64,9 @@ Example of SVG and MathML morphing from the backend
 
 https://github.com/user-attachments/assets/e8f48b44-c84d-4c43-9c1c-58a057db3e33
 
+https://github.com/user-attachments/assets/2383156f-6ba1-40de-8b45-117bbf59ed84
 
-To run the additional example apps, try
+---
 
 `./zig-out/bin/example_2` - a simple cat auction site.
 Bring up multiple browser windows and watch the bids get updated in realtime to all windows.
