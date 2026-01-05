@@ -27,7 +27,7 @@ declarative HTML.
 It uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
 SDK functions to write the same app in Go, Clojure, C#, PHP, Python, Bun, Ruby, Rust, Lisp, Racket, Java, etc. 
 
-This project adds Zig to that list of supported SDK languages.
+This project adds Zig 0.16-dev to that list of supported SDK languages.
 
 _Why consider the Zig version then ? Who is that for ?_
 
