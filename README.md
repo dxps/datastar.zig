@@ -708,10 +708,6 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
 
 ```
 
-# Long Lived Connections
-
-TODO - Rewrite this to discuss pubsub.zig, as well as other message brokers, including an example of using postgres notify
-
 # Local Development Utilities
 
 The Zig Datastar SDK provides some built in tools to make local development and testing more pleasant.
