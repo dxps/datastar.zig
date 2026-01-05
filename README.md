@@ -164,7 +164,7 @@ If you just want to quickly install this, and try out the demo programs first, d
 git clone https://github.com/zigster64/datastar.zig
 cd datastar.zig
 zig build
-./zig-out/bin/01_basic
+./zig-out/bin/example_1
 ```
 
 Then open your browser to http://localhost:8081
@@ -175,6 +175,7 @@ section that displays the code to use on your backend to drive the page you are 
 
 ![Screenshot of example_1](./docs/images/example_1a.png)
 
+![Show Code example](./docs/images/show_code.png)
 
 ---
 Example of SVG and MathML morphing from the backend
