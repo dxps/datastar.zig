@@ -55,7 +55,7 @@ fn styleCss(_: *App, http: *HTTPRequest) !void {
 fn catsList(app: *App, http: *HTTPRequest) !void {
     var sse = try http.NewSSESync();
     defer sse.close();
-    try publishCatList(app, &sse);
+    try pushCatList(app, &sse);
 
     var mq = try app.pubsub.connect();
     defer mq.deinit();
@@ -65,13 +65,13 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
 
     while (try mq.next()) |event| {
         switch (event) {
-            .msg => try publishCatList(app, &sse),
+            .msg => try pushCatList(app, &sse),
             .timeout => try sse.keepalive(),
         }
     }
 }
 
-fn publishCatList(app: *App, sse: *datastar.SSE) !void {
+fn pushCatList(app: *App, sse: *datastar.SSE) !void {
     var w = sse.patchElementsWriter(.{});
     try w.print(
         \\<div id="cat-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-4 h-full" data-signals="{{ bids: [{d},{d},{d},{d},{d},{d}] }}">

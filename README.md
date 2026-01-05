@@ -666,8 +666,47 @@ for those handlers that want to subscribe to topics.
 
 For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
 
-This version of the SDK can be used easily with https://github.com/zigster64/pubsub.zig, which was custom built 
-to provide an embedded message broker for Datastar Apps in Zig. We will describe the usage of that in the following section.
+The example apps in this SDK that require PubSub, use use the embedded message broker here https://github.com/zigster64/pubsub.zig, 
+.. which was actually custom built specifically for these Datastar SSE runners.
+
+This message broker is optional, but it is already bundled in the SDK if you want to make use of it.
+
+You can see this being used in `02_cats.zig`
+
+```zig
+// PubSub broker is bundled in the SDK for you already
+const pubsub = datastar.pubsub;
+
+// SSE persistent handler that subscribes to the message broker
+fn catsList(app: *App, http: *HTTPRequest) !void {
+    var sse = try http.NewSSESync();
+    defer sse.close();
+    try pushCatList(app, &sse);
+
+    var mq = try app.pubsub.connect(); // <-- the broker is referenced here
+    defer mq.deinit();
+
+    // Subscribe to the message broker
+    try mq.subscribe(.cats); 
+    mq.setTimeout(30 * std.time.ns_per_s);
+
+    // loop forever over the events
+    while (try mq.next()) |event| {
+        switch (event) {
+            .msg => try pushCatList(app, &sse),
+            .timeout => try sse.keepalive(),
+        }
+    }
+}
+
+// elsewhere, when a new bid has been posted
+fn postBid(app: *App, http: *HTTPRequest) !void {
+    ... do stuff ... then ..
+
+    try app.pubsub.publish(.{ .cats = {} }, .all);
+}
+
+```
 
 # Long Lived Connections
 
