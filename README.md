@@ -21,8 +21,6 @@ Who is this repo for ?
 
 - Anyone interested in using Datastar. https://data-star.dev.
 
-It is a state of the art Hypermedia-first library for building apps. 
-
 Allows you to build interactive Web UIs, driven from the backend server, using
 declarative HTML.
 
