@@ -62,6 +62,9 @@ section that displays the code to use on your backend to drive the page you are 
 ---
 Example of SVG and MathML morphing from the backend
 
+The SDK allows you to patch interior elements of an SVG or MathML block, without having to re-render the
+entire block. 
+
 https://github.com/user-attachments/assets/e8f48b44-c84d-4c43-9c1c-58a057db3e33
 
 https://github.com/user-attachments/assets/2383156f-6ba1-40de-8b45-117bbf59ed84
