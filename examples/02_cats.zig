@@ -15,7 +15,7 @@ pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     const allocator = gpa.allocator();
 
-    var threaded: Io.Threaded = .init(allocator);
+    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
     defer threaded.deinit();
     const io = threaded.io();
 
@@ -61,7 +61,7 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
     defer mq.deinit();
 
     try mq.subscribe(.cats);
-    mq.setTimeout(30 * std.time.ns_per_s);
+    mq.setTimeout(.fromSeconds(30));
 
     while (try mq.next()) |event| {
         switch (event) {

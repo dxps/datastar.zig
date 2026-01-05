@@ -21,7 +21,7 @@ pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     const allocator = gpa.allocator();
 
-    var threaded: Io.Threaded = .init(allocator);
+    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
     defer threaded.deinit();
     const io = threaded.io();
 
@@ -84,7 +84,7 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
     mq.setFilter(.fromSlice(session));
     try mq.subscribe(.cats);
     try mq.subscribe(.prefs);
-    mq.setTimeout(30 * std.time.ns_per_s);
+    mq.setTimeout(.fromSeconds(30));
 
     while (try mq.next()) |event| {
         std.debug.print("Session {s} got event {f}\n", .{ session, event });

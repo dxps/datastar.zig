@@ -1,11 +1,9 @@
 const std = @import("std");
-const Stream = std.net.Stream;
-const httpz = @import("httpz");
-const logz = @import("logz");
 const datastar = @import("datastar");
 
 const Allocator = std.mem.Allocator;
-const PORT = 8085;
+const HTTPRequest = datastar.HTTPRequest;
+const Io = std.Io;
 
 const GM = false;
 
@@ -129,8 +127,8 @@ const Plant = struct {
         });
     }
 
-    pub fn render(p: Plant, id: usize, w: anytype, gpa: std.mem.Allocator) !void {
-        const img_name = try std.fmt.allocPrint(gpa, image_format_string, .{p.image_base_index + @intFromEnum(p.growth_stage)});
+    pub fn render(p: Plant, id: usize, w: anytype, allocator: std.mem.Allocator) !void {
+        const img_name = try std.fmt.allocPrint(allocator, image_format_string, .{p.image_base_index + @intFromEnum(p.growth_stage)});
         const img_class: []const u8 = switch (p.state) {
             .Dead => "dead",
             .Dying => "dying",
@@ -240,7 +238,7 @@ pub const OnionConfig = Plant{
 };
 
 pub const App = struct {
-    gpa: Allocator,
+    allocator: Allocator,
     plants: [4]?Plant,
     mutex: std.Thread.Mutex,
     subscribers: datastar.Subscribers(*App),
@@ -248,10 +246,11 @@ pub const App = struct {
     // Represented in the order of (0) Carrot (1) Radish (2) Gourd (3) Onion
     crop_counts: [4]u32 = [_]u32{ 0, 0, 0, 0 },
 
-    pub fn init(gpa: Allocator) !*App {
-        const app = try gpa.create(App);
+    pub fn init(io: Io, allocator: Allocator) !*App {
+        const app = try allocator.create(App);
         app.* = .{
-            .gpa = gpa,
+            .io = io,
+            .allocator = allocator,
             .mutex = .{},
             .plants = .{
                 CarrotConfig,
@@ -259,13 +258,13 @@ pub const App = struct {
                 GourdConfig,
                 OnionConfig,
             },
-            .subscribers = try datastar.Subscribers(*App).init(gpa, app),
+            .subscribers = try datastar.Subscribers(*App).init(allocator, app),
         };
         return app;
     }
 
     pub fn deinit(app: *App) void {
-        app.gpa.destroy(app);
+        app.allocator.destroy(app);
     }
 
     // convenience function
@@ -285,7 +284,7 @@ pub const App = struct {
             logz.info().string("event", "publishPlantList").int("stream", stream.handle).int("elapsed (μs)", t2 - t1).log();
         }
 
-        var sse = datastar.NewSSEFromStream(stream, app.gpa);
+        var sse = datastar.NewSSEFromStream(stream, app.allocator);
         defer sse.deinit();
 
         var w = sse.patchElementsWriter(.{});
@@ -295,7 +294,7 @@ pub const App = struct {
 
         for (0..4) |i| {
             if (app.plants[i]) |p| {
-                try p.render(i, w, app.gpa);
+                try p.render(i, w, app.allocator);
             } else {
                 try w.print(
                     \\<div class="card px-16 py-6 w-fit h-fit bg-yellow-700 card-lg shadow-sm m-auto mt-4 border-4 border-solid border-yellow-900">
@@ -324,7 +323,7 @@ pub const App = struct {
             gourds: usize,
             onions: usize,
         };
-        var sse = datastar.NewSSEFromStream(stream, app.gpa);
+        var sse = datastar.NewSSEFromStream(stream, app.allocator);
         defer sse.deinit();
 
         try sse.patchSignals(Counts{

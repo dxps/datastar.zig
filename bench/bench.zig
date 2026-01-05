@@ -4,17 +4,17 @@ const HTTPRequest = datastar.HTTPRequest;
 const Io = std.Io;
 
 pub fn main() !void {
-    const gpa = std.heap.smp_allocator;
+    const allocator = std.heap.smp_allocator;
 
     // Evented isnt really working yet, so stick with Threaded IO for now
     // Once Evented is functional, its just a 1 line change here to swap
     // from heavy threads to coroutines
-    var threaded: Io.Threaded = .init(gpa);
+    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
     defer threaded.deinit();
     threaded.setAsyncLimit(std.Io.Limit.limited64(10));
     const io = threaded.io();
 
-    var server = try datastar.Server.init(io, gpa, "0.0.0.0", 8090);
+    var server = try datastar.Server.init(io, allocator, "0.0.0.0", 8090);
     defer server.deinit();
 
     const r = server.router;

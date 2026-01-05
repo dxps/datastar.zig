@@ -1,13 +1,13 @@
 .{
     .name = .datastar_zig,
     .version = "0.1.0",
-    .minimum_zig_version = "0.16.0-dev",
+    .minimum_zig_version = "0.16.0-dev.1912+0cbaaa5eb",
     .fingerprint = 0xa2c2b3996211dfe7,
     .dependencies = .{
         .pubsub = .{
             // .path = "../pubsub.zig",
-            .url = "git+https://github.com/zigster64/pubsub.zig#56d36eebb7d3ca877374e1af4a702163803d3708",
-            .hash = "pubsub-0.0.0-6dy2AZ9_AAB9BtgLy_SedPDb2SHiMjORuT1ybJ1TCITc",
+            .url = "git+https://github.com/zigster64/pubsub.zig#c6df3b7c8913103d697304349d139c76ffe18dea",
+            .hash = "pubsub-0.0.0-6dy2AQWAAADeHJNPEPX3PB08hDVKEtUA0Nq5uPX9h-xy",
         },
     },
     .paths = .{
