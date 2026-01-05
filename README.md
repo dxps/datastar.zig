@@ -43,7 +43,8 @@ Try it out.
 If you just want to quickly install this, and try out the demo programs first, do this :
 
 ```
-... get zig 0.16-dev installed on your machine
+... get zig 0.16-dev installed on your machine, then ...
+
 git clone https://github.com/zigster64/datastar.zig
 cd datastar.zig
 zig build
@@ -78,13 +79,16 @@ Bring up multiple browser windows and watch the bids get updated in realtime to 
 
 ---
 
-`./zig-out/bin/example_3` - a more complex cat aution site, with session based preferences managed at the backend.
+`./zig-out/bin/example_3` - a more complex WildCat aution site, with session based preferences managed
+at the backend.
+
 Bring up multiple browser windows and watch the bids get updated in realtime to all windows.
 Change preferences, and watch that all browser windows in the same session get their preferences updated.
 
-Use a different machine, or browser, or use the 'Profiles' feature in Chrome/Safari/Firefox to simulate a new session.
-Note that the bids update in realtime across all browsers, and just the preferences changes are sticky across all 
-windows belonging to the same machine/profile.
+Use a different machine, or browser to simulate a new session.
+
+Note that the bids update in realtime across all clients, and just the preferences changes are sticky
+across all clients belonging to the same session.
 
 ![Screenshot of example_3](./docs/images/example_3.png)
 
@@ -117,14 +121,12 @@ Current version passes all tests.
 When you run `zig build` it will compile several apps into `./zig-out/bin/` to demonstrate using different parts 
 of the api
 
-- example_1  shows using the Datastar API using basic SDK handlers
-- example_2  shows an example multi-user auction site for cats with realtime updates using pub/sub
-- example_3  Same cat auction as above, but with per-user preferences, all handled on the backend only
-
-<!-- - example_3  shows an example multi-user pigeon racing betting site with realtime updates -->
-<!-- - example_4  shows an example multi-game, multi-player TicTacToe site, using the backstage actor framework -->
-
+- example_1  Using the Datastar API using basic SDK handlers
+- example_2  An example multi-user auction site for cats with realtime updates using pub/sub
+- example_3  Same cat auction as above, but with per-user preferences managed by the backend
+- example_4  (TODO) - a betting app simulator with realtime updates
 - example_5  shows an example multi-player Gardening Simulator using pub/sub
+- example_6  (TODO) - a multi-tenant TicTacToe game, with lobby, and anon viewing
 
 
 # Installation and Usage
