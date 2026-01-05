@@ -23,32 +23,20 @@ Who is this repo for ?
 
 It is a state of the art Hypermedia-first library for building apps. 
 
-Its not "yet another frontend framework" - its a 10kb JS shim that allows you to write application code
-at the backend, and leverage modern browser standards to have a very fast, very light, reactive UI 
-with none of the junk. There are no build steps, no npm deps - just declarative HTML and reactive signals,
-driven from the backend.
-
-If you know, you know.
+Allows you to build interactive Web UIs, driven from the backend server, using
+declarative HTML.
 
 It uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
 SDK functions to write the same app in Go, Clojure, C#, PHP, Python, Bun, Ruby, Rust, Lisp, Racket, Java, etc. 
 
 This project adds Zig to that list of supported SDK languages.
 
-It uses the exact same spec as all the other SDK's, and reads extremely similarly to say - a Go program
-or a Python program using the same SDK.
-
-Why consider the Zig version then ? Who is that for ?
+_Why consider the Zig version then ? Who is that for ?_
 
 - Existing Zig programmers who want to try Datastar
 - Datastar app builders who want to experiment with performance, and dabble in new backend languages
 
-Consider Zig if every microsecond counts, or you want stupidly small memory footprints that dont grow.
-
-Zig gives you some pretty good tuning options if you want to chase benchmarks and break records too.
-
-We are talking orders of magnitude performance and resource usage gains for your existing Datastar app, depending
-on what you are currently using. 
+Consider Zig if every microsecond counts, or you want small memory footprints.
 
 Try it out.
 
