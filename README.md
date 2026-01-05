@@ -736,6 +736,46 @@ More complex Solution (For HTTP Framework Authors) :
 
 ![Datastar HTTPRequest Interface](docs/http_request.png)
 
+The HTTPRequest interface currently looks like this :  (is WIP, may change a little)
+```zig
+/// Return a new SSE object for a simple 1 shot response
+pub fn NewSSE(http: *HTTPRequest) !SSE
+
+/// Return a new SSE object setup for a series of synchronous responses or persistent connection
+pub fn NewSSESync(http: *HTTPRequest) !SSE
+
+/// Return a new SSE object with custom options
+pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE
+
+/// use this to construct extra_headers when creating any response
+/// it will pull in self.extra_headers, and merge them with the new set
+/// to provide a complete set for the actual request
+/// See http.setCookie() for an example where this is needed
+pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const std.http.Header
+
+/// send a response of type text/html with the given data
+pub fn html(self: *HTTPRequest, data: []const u8) !void
+
+/// send a response of type text/html with a formatted print
+pub fn htmlFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !void
+
+/// send a response of type application/json with the given data
+pub fn json(self: *HTTPRequest, data: anytype) !void
+
+/// extract the full query params from the request
+pub fn query(self: HTTPRequest) ![]const u8
+
+/// read Datastar signals from the request into the given struct type, return an instance of this struct
+pub fn readSignals(self: HTTPRequest, comptime T: type) !T
+
+/// set a cookie that will be included in the response header
+pub fn setCookie(self: *HTTPRequest, name: []const u8, value: []const u8)
+
+/// get a cookie from the request
+pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8
+
+```
+
 # Contrib Policy
 
 All contribs welcome.
