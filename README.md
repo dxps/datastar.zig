@@ -728,7 +728,8 @@ Simple Solution :
 
 More complex Solution (For HTTP Framework Authors) :
 
-- This SDK defines an interface for managing HTTP Requests with Datastar, which is documented in `http_request.zig`.
+- This SDK defines an interface for managing HTTP Requests with Datastar
+- Copy `http_request.zig` from this code, and use that as the bones to write your own interface implementation.
 - The implementation of the Datastar + SEE Processing is contained in `datastar.zig`, and is independent of the HTTPRequest implementation.
 - So ... its only the application code and handlers that are tied to a HTTPRequest implementation, via the interface.
 - Write a HTTPRequest compatible wrapper for your HTTP Framework. If you provide that, then any application code that works with the
