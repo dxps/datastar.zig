@@ -629,7 +629,7 @@ fn executeScript(req: *httpz.Request, res: *httpz.Response) !void {
 
 # Advanced SSE Topics
 
-## Synchronous Writes 
+## Batched Patches vs Synchronous Writes 
 
 By default, when you create a `NewSSE(http)`, and do various actions on it such as `patchElements()`, this 
 will buffer up the converted SSE stream, which is then written to the client browser as the request is 
