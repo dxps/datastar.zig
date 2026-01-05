@@ -120,6 +120,9 @@ fn sseEndpoint(http: *HTTPRequest) !void {
 This 0.16 Version of the Datastar SDK includes a basic web development framework and fast radix-tree
 based router that uses the stdlib http server.
 
+It uses similar API conventions to https://github.com/karlseguin/http.zig, tuned
+specifically for use with Datastar applications.
+
 You can use this built-in server, or you can use any other HTTP Server Framework that works with
 Zig 0.16. 
 
