@@ -15,6 +15,29 @@ Versions :
 
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 
+# Audience and Scope
+
+Who is this repo for ?
+
+- Anyone interested in using Datastar. https://data-star.dev.
+
+Allows you to build interactive Web UIs, driven from the backend server, using
+declarative HTML.
+
+It uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
+SDK functions to write the same app in Go, Clojure, C#, PHP, Python, Bun, Ruby, Rust, Lisp, Racket, Java, etc. 
+
+This project adds Zig 0.16-dev to that list of supported SDK languages.
+
+_Why consider the Zig version then ? Who is that for ?_
+
+- Existing Zig programmers who want to try Datastar
+- Datastar app builders who want to experiment with performance, and dabble in new backend languages
+
+Consider Zig if every microsecond counts, or you want small memory footprints.
+
+Try it out.
+
 # Installation and Usage
 
 To build an application using this SDK
@@ -130,28 +153,6 @@ See the example above in the install step about using the built in HTTP Server.
 
 See notes at the end of this document about adapting other HTTP Server Frameworks.
 
-# Audience and Scope
-
-Who is this repo for ?
-
-- Anyone interested in using Datastar. https://data-star.dev.
-
-Allows you to build interactive Web UIs, driven from the backend server, using
-declarative HTML.
-
-It uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
-SDK functions to write the same app in Go, Clojure, C#, PHP, Python, Bun, Ruby, Rust, Lisp, Racket, Java, etc. 
-
-This project adds Zig 0.16-dev to that list of supported SDK languages.
-
-_Why consider the Zig version then ? Who is that for ?_
-
-- Existing Zig programmers who want to try Datastar
-- Datastar app builders who want to experiment with performance, and dabble in new backend languages
-
-Consider Zig if every microsecond counts, or you want small memory footprints.
-
-Try it out.
 
 # Quick Start Introduction
 
