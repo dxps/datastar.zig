@@ -1,6 +1,6 @@
 == patchElements handler ==
 
-var sse = try datastar.NewSSE(http);
+var sse = try http.NewSSE();
 defer sse.close();
 
 try sse.patchElementsFmt(

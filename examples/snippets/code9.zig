@@ -1,7 +1,7 @@
 == svgMorph handler ==
 
 const opt = try http.readSignals(struct{svgMorph: usize = 1});
-var sse = try datastar.NewSSESync(http);
+var sse = try http.NewSSESync();
 defer sse.close();
 
 for (1..opt.svgMorph + 1) |_| {

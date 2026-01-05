@@ -2,17 +2,18 @@
 
 ![Cyberpunk Datastar Zig SDK - Sydney Metro Rail - Leica XV](assets/datastar.zig.jpg)
 
-A Zig library for 0.16 / latest async/concurrent stdlib that conforms to the Datastar SDK specification.
+A Zig library for 0.16 / latest stdlib that conforms to the Datastar SDK specification.
 
 https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
 
-.. and passes the official test cases.
+.. and passes the official Datastar test cases.
 
 Versions :
 - Datastar 1.0.0-RC7
-- Zig 0.16.x
+- Zig 0.16-dev
 
-See Also http://github.com/zigster64/datastar.http.zig for the Datastar SDK for zig 0.15.2 sitting on top of http.zig
+
+For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 
 # Audience and Scope
 
@@ -20,47 +21,154 @@ Who is this repo for ?
 
 - Anyone interested in using Datastar. https://data-star.dev.
 
-It is a state of the art Hypermedia-first library for building apps. 
+Datastar allows you to build interactive Web UIs, driven from the backend server, using
+declarative HTML. It is particularly good for doing real time push updates, event sourcing, and
+multi-player or collaborative applications.
 
-Its not "yet another frontend framework" - its a 10kb JS shim that allows you to write application code
-at the backend, and leverage modern browser standards to have a very fast, very light, reactive UI 
-with none of the junk. There are no build steps, no npm deps - just declarative HTML and reactive signals,
-driven from the backend.
+See the end of this document for more resources if you want to know more 
+about Datastar.
 
-If you know, you know.
-
-It uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
+Datastar uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
 SDK functions to write the same app in Go, Clojure, C#, PHP, Python, Bun, Ruby, Rust, Lisp, Racket, Java, etc. 
 
-This project adds Zig to that list of supported SDK languages.
+This project adds Zig 0.16-dev to that list of supported SDK languages.
 
-It uses the exact same spec as all the other SDK's, and reads extremely similarly to say - a Go program
-or a Python program using the same SDK.
-
-Why consider the Zig version then ? Who is that for ?
+_Why consider the Zig version then ? Who is that for ?_
 
 - Existing Zig programmers who want to try Datastar
 - Datastar app builders who want to experiment with performance, and dabble in new backend languages
 
-Consider Zig if every microsecond counts, or you want stupidly small memory footprints that dont grow.
-
-Zig gives you some pretty good tuning options if you want to chase benchmarks and break records too.
-
-We are talking orders of magnitude performance and resource usage gains for your existing Datastar app, depending
-on what you are currently using. 
+Consider Zig if every microsecond counts, or you want small memory footprints.
 
 Try it out.
+
+# Installation and Usage
+
+To build an application using this SDK
+
+1) Add datastar.zig as a dependency in your `build.zig.zon`:
+
+```bash
+zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig#master"
+```
+
+2) In your `build.zig`, add the `datastar` module as a dependency you your program:
+
+```zig
+const datastar = b.dependency("datastar", .{
+    .target = target,
+    .optimize = optimize,
+});
+
+// the executable from your call to b.addExecutable(...)
+exe.root_module.addImport("datastar", datastar.module("datastar"));
+
+// or add the module "datastar" to the .imports section of your exe
+```
+
+3) In your application code
+
+Depends on the HTTP Framework you are using.
+
+This SDK does include a complete HTTP Framework for Zig 0.16 to get 
+you started. Here is a full example using this built in HTTP Server
+with Datastar specific SSE events.
+
+```zig
+
+const ADDRESS = "0.0.0.0"; // all IP addresses
+const PORT = 8080; 
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    const allocator = gpa.allocator();
+
+    // Evented isnt really working yet, so stick with Threaded IO for now
+    // Once Evented is functional, its just a 1 line change here to swap
+    // from heavy threads to coroutines
+    var threaded: Io.Threaded = .init(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Create a server listening for new HTTP connections
+    var server = try HTTPServer.init(io, allocator, ADDRESS, PORT);
+    defer server.deinit();
+
+    // Setup all the routes
+    const r = server.router;
+    r.get("/", index);
+    r.get("/sse/:id", sseEndpoint);
+    ... all the routes
+
+    std.debug.print("Server listening on http://{s}:{}\n", .{ADDRESS, PORT});
+    try server.run();
+}
+
+// Handler code
+fn index(http: *HTTPRequest) !void {
+    // Note
+    // - Include the Datastar bundle (or you can host your own)
+    // - The body makes a call to /see to fetch content
+    // - The div id="hello" is a target for updating in the /sse call
+    // - The data-json-signals element provides debugging output for the current state of signals
+    return http.html(
+        \\<!DOCTYPE html>
+        \\<head>
+        \\  <script type="module"
+        \\    src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js">
+        \\  </script>
+        \\</head>
+
+        \\<body data-init="/sse/zig">
+        \\  <div id="hello">Loading ...</div>
+        \\  <pre data-json-signals></pre>
+        \\</body>
+    );
+}
+
+// A simple SSE endpoint that generates a set of events over the stream 
+fn sseEndpoint(http: *HTTPRequest) !void {
+    const id = http.params.get("id") orelse return error.NoID;
+
+    var sse = try http.NewSSE();
+    defer sse.close();
+
+    // Update just the id='hello' element in the DOM
+    try sse.patchElements("<div id='hello'>Hello World</div>");
+
+
+    try sse.patchSignals(.{.foo = 42, .bar = "Datastar Rocks"});
+    try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id});
+}
+```
+
+# Web Server that works with Zig 0.16-dev ?
+
+This 0.16 Version of the Datastar SDK includes a basic web development framework and fast radix-tree
+based router that uses the stdlib http server.
+
+It uses similar API conventions to https://github.com/karlseguin/http.zig, tuned
+specifically for use with Datastar applications.
+
+You can use this built-in server, or you can use any other HTTP Server Framework that works with
+Zig 0.16. 
+
+See the example above in the install step about using the built in HTTP Server.
+
+See notes at the end of this document about adapting other HTTP Server Frameworks.
+
 
 # Quick Start Introduction
 
 If you just want to quickly install this, and try out the demo programs first, do this :
 
 ```
-... get zig 0.16-dev installed on your machine
+... get zig 0.16-dev installed on your machine, then ...
+
 git clone https://github.com/zigster64/datastar.zig
 cd datastar.zig
 zig build
-./zig-out/bin/01_basic
+./zig-out/bin/example_1
 ```
 
 Then open your browser to http://localhost:8081
@@ -71,10 +179,19 @@ section that displays the code to use on your backend to drive the page you are 
 
 ![Screenshot of example_1](./docs/images/example_1a.png)
 
+![Show Code example](./docs/images/show_code.png)
 
 ---
+Example of SVG and MathML morphing from the backend
 
-To run the additional example apps, try
+The SDK allows you to patch interior elements of an SVG or MathML block, without having to re-render the
+entire block. 
+
+https://github.com/user-attachments/assets/e8f48b44-c84d-4c43-9c1c-58a057db3e33
+
+https://github.com/user-attachments/assets/2383156f-6ba1-40de-8b45-117bbf59ed84
+
+---
 
 `./zig-out/bin/example_2` - a simple cat auction site.
 Bring up multiple browser windows and watch the bids get updated in realtime to all windows.
@@ -83,15 +200,18 @@ Bring up multiple browser windows and watch the bids get updated in realtime to 
 
 ---
 
-`./zig-out/bin/example_22` - a more complex cat aution site, with session based preferences managed at the backend.
+`./zig-out/bin/example_3` - a more complex WildCat aution site, with session based preferences managed
+at the backend.
+
 Bring up multiple browser windows and watch the bids get updated in realtime to all windows.
 Change preferences, and watch that all browser windows in the same session get their preferences updated.
 
-Use a different machine, or browser, or use the 'Profiles' feature in Chrome/Safari/Firefox to simulate a new session.
-Note that the bids update in realtime across all browsers, and just the preferences changes are sticky across all 
-windows belonging to the same machine/profile.
+Use a different machine, or browser to simulate a new session.
 
-![Screenshot of example_22](./docs/images/example_22.png)
+Note that the bids update in realtime across all clients, and just the preferences changes are sticky
+across all clients belonging to the same session.
+
+![Screenshot of example_3](./docs/images/example_3.png)
 
 ---
 
@@ -122,105 +242,14 @@ Current version passes all tests.
 When you run `zig build` it will compile several apps into `./zig-out/bin/` to demonstrate using different parts 
 of the api
 
-- example_1  shows using the Datastar API using basic SDK handlers
-- example_2  shows an example multi-user auction site for cats with realtime updates using pub/sub
-- example_22 Same cat auction as above, but with per-user preferences, all handled on the backend only
-
-<!-- - example_3  shows an example multi-user pigeon racing betting site with realtime updates -->
-<!-- - example_4  shows an example multi-game, multi-player TicTacToe site, using the backstage actor framework -->
-
+- example_1  Using the Datastar API using basic SDK handlers
+- example_2  An example multi-user auction site for cats with realtime updates using pub/sub
+- example_3  Same cat auction as above, but with per-user preferences managed by the backend
+- example_4  (TODO) - a betting app simulator with realtime updates
 - example_5  shows an example multi-player Gardening Simulator using pub/sub
+- example_6  (TODO) - a multi-tenant TicTacToe game, with lobby, and anon viewing
 
 
-# Installation and Usage
-
-To build an application using this SDK
-
-1) Add datastar.zig as a dependency in your `build.zig.zon`:
-
-```bash
-zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig#master"
-```
-
-2) In your `build.zig`, add the `datastar` module as a dependency you your program:
-
-```zig
-const datastar = b.dependency("datastar", .{
-    .target = target,
-    .optimize = optimize,
-});
-
-// the executable from your call to b.addExecutable(...)
-exe.root_module.addImport("datastar", datastar.module("datastar"));
-```
-
-# Web Server ?
-
-This 0.16 Version of the Datastar SDK includes a basic web server and fast radix-tree based router that uses the stdlib server.
-
-You can use this built-in server if you want to start experiminting with Zig 0.16-dev, as it has no other dependencies outside of stdlib.
-
-Full example of a main() using the 
-
-```zig 
-const std = @import("std");
-const datastar = @import("datastar");
-
-const Io = std.Io;
-
-const PORT = 8080;
-
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-
-    var threaded: Io.Threaded = .init(allocator);
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    // Create a server listening on all IP addresses, including IPv6
-    const HTTPServer = datastar.Server(void);
-    var server = try HTTPServer.initIp6(io, allocator, PORT);
-    defer server.deinit();
-
-    // Add some routes with different http methods
-    const r = server.router;
-    r.get("/", index);
-    r.get("/text-html", textHtml);
-    r.get("/patch", patchElements);
-    r.post("/patch/opts", patchElementsOpts);
-    r.get("/code/:snip", code);
-
-    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
-
-    // optional function to reboot the server on re-compile
-    // try this if you are doing local dev - is handy
-    try server.rebooter();
-
-    // everything is set, so start the server up
-    try server.run();
-}
-
-// all handlers receive a single HTTPRequest param
-fn index(http: *datastar.HTTPRequest) !void {
-    // http has verbs such as html() to send HTML, json() to send JSON, etc
-    return try http.html(@embedFile("index.html"));
-}
-
-fn patchElements(http: *datastar.HTTPRequest) !void {
-    // here we call NewSSE() on the http request, which sets this into 
-    // event-stream mode.
-    var sse = try datastar.NewSSE(http);
-    defer sse.close(); // Sends off the SSE event stream, and closes the connection
-
-    try sse.patchElementsFmt(
-        \\<p id="mf-patch">This is update number {d}</p>
-    ,
-        .{getCountAndIncrement()},
-        .{},
-    );
-}
-```
 
 # Functions
 
@@ -234,9 +263,9 @@ http.readSignals(comptime T: type) !T  // for use with the built in HTTPServer, 
 datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T // generic interface if you are not using the built in HTTPServer
 
 // set the connection to SSE, and return an SSE object
-var sse = datastar.NewSSE(http) !SSE
-var sse = datastar.NewSSESync(http) !SSE
-var sse = datastar.NewSSEOpt(http, sse_options) !SSE
+var sse = http.NewSSE() !SSE
+var sse = http.NewSSESync() !SSE
+var sse = http.NewSSEOpt(sse_options) !SSE
 
 // when you are finished with this connection
 sse.close()
@@ -289,6 +318,8 @@ The built in HTTPServer provides a simple fast router
 ```zig
 var app = App.init(allocator); // create a global state context for this app
 var server = try datastar.Server(*App).initIp6(io, allocator, PORT);
+server.setContext(&app);
+
 var r = server.router;  // get the router from the Server we created
 
 r.get(path, handler)
@@ -313,6 +344,10 @@ When using the built in HTTPServer, all handlers receive either :
 - a single paramater of type `*HTTPRequest` for servers of type `Server(void)`
 - a context, and a `*HTTPRequest` for servers of type `Server(T)`
 
+See the above code example, where a global context of type `App` is created,
+and the server is defined as `Server(*App)`, followed by `server.setContext(&app)`.
+
+In this case, the handler functions now all receive that global context.
 
 This HTTPRequest has the following features :
 
@@ -333,6 +368,7 @@ http.readSignals(T) !T           // read the signals from the request into struc
 
 // Route Parameters 
 http.params.get(name) ?[]const u8  // get the value of named parameter :name
+http.params.getInt(T, name) ?T     // get the value of named parameter :name as an Integer
 ```
 
 The built in functions allow you to easily return text/html or application/json. (as well as Datastar SSE actions, as shown below)
@@ -344,10 +380,10 @@ provides a lot of very low level control options for returning responses there.
 
 ## The SSE Object
 
-Calling NewSSE, passing a HTTPRequest, will return an object of type SSE.
+Calling NewSSE on the HTTPRequest will return an object of type SSE.
 
 ```zig
-    pub fn NewSSE(http) !SSE 
+    sse.NewSSE() !SSE 
 ```
 
 This will configure the connnection for SSE transfers, and provides an object with Datastar methods for
@@ -365,14 +401,14 @@ You can declare your sse object early in the handler, and then set headers / coo
 in the handler. Because actual network updates are batched till the end, everything goes out in the correct order.
 
 ```zig
-    pub fn NewSSESync(http) !SSE 
+    sse.NewSSESync() !SSE 
 ```
 Will create an SSE object that will do immediate Synchronous Writes to the browser as each `patchElements()` call is made.
 
 Finally, there is a NewSSE variant that takes a set of options, for special cases
 
 ```zig
-    pub fn NewSSEOpt(http, SSEOptions) !SSE
+    sse.NewSSEOpt(SSEOptions) !SSE
 
     // Where options are 
     const SSEOptions = struct {
@@ -388,7 +424,7 @@ Using the built in HTTPServer
     pub fn http.readSignals(comptime T: type) !T
 ```
 
-Using other HTTP Server libs - generic version 
+Using a generic version for other HTTP Frameworks
 ```zig
     pub fn datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T
 ```
@@ -593,7 +629,7 @@ fn executeScript(req: *httpz.Request, res: *httpz.Response) !void {
 
 # Advanced SSE Topics
 
-## Synchronous Writes 
+## Batched Writes vs Synchronous Writes 
 
 By default, when you create a `NewSSE(http)`, and do various actions on it such as `patchElements()`, this 
 will buffer up the converted SSE stream, which is then written to the client browser as the request is 
@@ -606,6 +642,8 @@ In this case use `NewSSESync(http)` to set the SSE into Synchronous Mode.
 
 For example - in the SVGMorph demo, we want to generate a randomized SVG update, then write that to the client 
 browser, then pause for 100ms and repeat, to provide a smooth animation of the SVG.
+
+![NewSSE vs NewSSESync](docs/images/newsse_newssesync.png)
 
 ## Namespaces - SVG and MathML (Datastar RC7 feature)
 
@@ -630,42 +668,217 @@ for those handlers that want to subscribe to topics.
 
 For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
 
-This version of the SDK also implements the pub/sub  
+The example apps in this SDK that require PubSub, use this embedded message broker https://github.com/zigster64/pubsub.zig
 
-# Long Lived Connections
+.. which was custom built specifically for these Datastar SSE runners.
 
-When using a pub/sub setup with your application (be it the built in pubsub, or some more robust multi-service messaging backbone), you will want
-your connections to be long lived.
+This message broker is optional, but it is already bundled in the SDK if you want to make use of it.
 
-Some examples for different ways to acheive this :
+You can see this being used in `02_cats.zig` for example, to update bids on cat auction.
 
 ```zig
-// Using the built in pub-sub
-// Sit this thread in a loop that will generate keepalive pings every 30 seconds
-// whilst other threads write data to the same connection via the publish callback
+// Optional embedded PubSub broker is bundled in the SDK for easy access
+const pubsub = datastar.pubsub;
+
+// SSE persistent handler that subscribes to the message broker
 fn catsList(app: *App, http: *HTTPRequest) !void {
-    var sse = try datastar.NewSSESync(http);
+    var sse = try http.NewSSESync();
+    defer sse.close();
+    try pushCatList(app, &sse);
 
-    try app.subscribers.subscribe("cats", &sse, App.publishCatList);
-    sse.keepalive(http.io, .fromSeconds(30));
-    subs.unsubscribe(&sse);
-}
+    var mq = try app.pubsub.connect(); // <-- the broker is referenced here
+    defer mq.deinit();
 
-// Using an external pub-sub message queue
-fn catsList(app: *App, http: *HTTPRequest) !void {
-    var sse = try datastar.NewSSESync(http);
+    // Subscribe to the message broker
+    try mq.subscribe(.cats); 
+    mq.setTimeout(30 * std.time.ns_per_s);
 
-    var mq = app.pubsub.subscribe("cats");
-    while (mq.next()) {
-        app.publishCatList();
+    // loop forever over the events
+    while (try mq.next()) |event| {
+        switch (event) {
+            .msg => try pushCatList(app, &sse),
+            .timeout => try sse.keepalive(),
+        }
     }
 }
 
+// elsewhere, when a new bid has been posted
+fn postBid(app: *App, http: *HTTPRequest) !void {
+    ... do stuff ... then ..
+
+    try app.pubsub.publish(.{ .cats = {} }, .all);
+}
 
 ```
 
+# Local Development Utilities
 
+The Zig Datastar SDK provides some built in tools to make local development and testing more pleasant.
 
+For hot reloads of the browser, there are a couple of idiomatic ways of dealing with this.
+
+If your application uses any persistent SSE connections to regularly update state, then ideally you should
+write these so that they output enough information to completely update the client content and state.
+
+That could mean sending the complete page (aka a "Fat Morph"), and letting the morph engine on the browser 
+sort out which DOM elements need updating.
+
+When the backend server stops and starts, the persistent SSE is closed, which triggers Datastar in the browser
+to try to re-establish that connection. When it re-establishes, it will send enough updated content and signals to 
+correctly re-render the browser.
+
+Sometimes that is not practical, or sometimes your app has no persistent SSE connection that can do this.
+
+If you have a look in `01_basic.zig` - the code for example_1 ... we dont have any persistent SSE connection
+to do this, so this app adds an endpoint `/hotreload/:id`
+
+When the index page is first requested, it will 
+
+```zig
+// add this route to your application
+// you can use whatever name for the endpoint you want, just connect it to the 
+// provided handler, like so :
+  r.post("/hotreload", datastar.hotreload); 
+```
+
+Then add this HTML snippet at the end of your initial index.html (or whatever doc you first load)
+```html
+   Create a long lived SSE connection that will detect refreshes on an outdated server 
+   instance, and force the browser to reload
+  <div data-init="@post('/hotreload', {retryMaxCount: 1000,retryInterval:20, retryMaxWaitMs:200})"></div>
+
+  Same, but with a full debug of signals if you like
+  <pre data-init="@post('/hotreload', {retryMaxCount: 1000,retryInterval:20, retryMaxWaitMs:200})" data-json-signals></pre>
+```
+
+To compliment that, the Zig Datastar SDK provides another utility function you can add 
+to your server code, to automatically reload the server executable whenever it is recompiled.
+
+You can do achieve this by adding this code to your server during startup :
+
+```zig
+    var server = try HTTPServer.initIp6(io, allocator, PORT);
+    defer server.deinit();
+
+    const r = server.router;
+    r.get("/", index);
+    ... add other routes here
+
+    // HOT Reloader setup
+    r.post("/hotreload", datastar.hotreload); // Turn on the Hotreloader
+    try server.rebooter(); // Tells the server to reboot on recompile
+
+    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
+    try server.run();
+```
+
+If you do both of those things, then in dev mode, you just compile in your IDE of choice,
+if it succeeds then the server restarts, which triggers the frontend to also hot reload.
+
+Of course, if you run the zig compiler in --watch mode, then everytime you save, it will
+recompile, which triggers a reload of the server, which triggers a frontend hot reload as 
+well.
+
+# Adapting this SDK to other non-stdlib HTTP libraries
+
+Should be relatively straightforward to do.
+
+Simple Solution :
+
+- Use the HTTP Server & Router abstrations already provided by your HTTP framework.
+- If the response can be a simple `text/html` or `application/json` .. just send that, understanding how Datastar is able
+  to use these to patch both elements and signals, without SSE processing.
+- For SSE packaged responses, use whatever mechanisms your HTTP framework provides to setup an EventStream response,
+  with appropriate chunked encoding and keep-alive connection protocol.
+- Use the top level `datastar.patchElements()` / `datastar.patchSignals()` / `datastar.executeScript()` of the EventStream 
+  generators, which all take raw string data for patching Elements and Scripts, or an arbitrary struct for patching Signals, 
+  and then return a processed string for the event stream.
+- Write the contents of this processed string to the HTTP response.
+- Done !
+
+More complex Solution (For HTTP Framework Authors) :
+
+- This SDK defines an interface for managing HTTP Requests with Datastar
+- Copy `http_request.zig` from this code, and use that as the bones to write your own interface implementation.
+- The implementation of the Datastar + SEE Processing is contained in `datastar.zig`, and is independent of the HTTPRequest implementation.
+- So ... its only the application code and handlers that are tied to a HTTPRequest implementation, via the interface.
+- Write a HTTPRequest compatible wrapper for your HTTP Framework. If you provide that, then any application code that works with the
+  built-in HTTP Server from this package will also work with your adapted HTTP Framework, by swapping over the HTTPRequest implementation.
+
+![Datastar HTTPRequest Interface](docs/http_request.png)
+
+The HTTPRequest interface currently looks like this :  (is WIP, may change a little)
+```zig
+/// Return a new SSE object for a simple 1 shot response
+pub fn NewSSE(http: *HTTPRequest) !SSE
+
+/// Return a new SSE object setup for a series of synchronous responses or persistent connection
+pub fn NewSSESync(http: *HTTPRequest) !SSE
+
+/// Return a new SSE object with custom options
+pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE
+
+/// use this to construct extra_headers when creating any response
+/// it will pull in self.extra_headers, and merge them with the new set
+/// to provide a complete set for the actual request
+/// See http.setCookie() for an example where this is needed
+pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const std.http.Header
+
+/// send a response of type text/html with the given data
+pub fn html(self: *HTTPRequest, data: []const u8) !void
+
+/// send a response of type text/html with a formatted print
+pub fn htmlFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !void
+
+/// send a response of type application/json with the given data
+pub fn json(self: *HTTPRequest, data: anytype) !void
+
+/// extract the full query params from the request
+pub fn query(self: HTTPRequest) ![]const u8
+
+/// read Datastar signals from the request into the given struct type, return an instance of this struct
+pub fn readSignals(self: HTTPRequest, comptime T: type) !T
+
+/// set a cookie that will be included in the response header
+pub fn setCookie(self: *HTTPRequest, name: []const u8, value: []const u8)
+
+/// get a cookie from the request
+pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8
+
+```
+
+# More Info on Datastar
+
+If you are still curious about Datastar, and wondering if its right for your app, here are some more resources
+to peruse. 
+
+The following videos will give you a really good idea if Datastar is for you or not.
+
+Short Overview
+
+[![Episode 1 - Datastar | Datastar Series](https://img.youtube.com/vi/I8QLWWPGT-c/0.jpg)](https://youtu.be/I8QLWWPGT-c)
+
+[![Episode 2 - Rockets Eye Overview | Datastar Series](https://img.youtube.com/vi/zQAz7fV95OU/0.jpg)](https://youtu.be/zQAz7fV95OU)
+
+In-Depth dive from the creator of Datastar
+
+[![Why We’re Building the Front End Wrong](https://img.youtube.com/vi/FtAuSAOMNtM/0.jpg)](https://www.youtube.com/watch?v=FtAuSAOMNtM)
+
+Other recommended viewing
+
+[![Datastar Hypermedia Framework - combining HTMX + Alpine.js functionality!](https://img.youtube.com/vi/u4_rNG--QMc/0.jpg)](https://youtu.be/u4_rNG--QMc)
+
+[![Real-time Hypermedia - Delaney Gillilan](https://img.youtube.com/vi/0K71AyAF6E4/0.jpg)](https://youtu.be/0K71AyAF6E4)
+
+[![Intro to Datastar (and Craft CMS)](https://img.youtube.com/vi/aVjU1st-52g/0.jpg)](https://www.youtube.com/live/aVjU1st-52g)
+
+[![What Datastar is Not, with JLarky](https://img.youtube.com/vi/p4X02rEPkJY/0.jpg)](https://youtu.be/p4X02rEPkJY)
+
+Datastar Discord
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/YfFn7pKx)
+
+Zig Discord
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/Chk5WKM5)
 
 # Contrib Policy
 

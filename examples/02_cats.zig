@@ -33,6 +33,7 @@ pub fn main() !void {
     {
         const r = server.router;
         r.get("/", index);
+        r.get("/style.css", styleCss);
         r.get("/cats", catsList);
         r.post("/bid/:id", postBid);
     }
@@ -43,15 +44,18 @@ pub fn main() !void {
     try server.run();
 }
 
-fn index(app: *App, http: *HTTPRequest) !void {
-    _ = app;
+fn index(_: *App, http: *HTTPRequest) !void {
     try http.html(@embedFile("02_index.html"));
 }
 
+fn styleCss(_: *App, http: *HTTPRequest) !void {
+    return http.html(@embedFile("style.css"));
+}
+
 fn catsList(app: *App, http: *HTTPRequest) !void {
-    var sse = try datastar.NewSSESync(http);
+    var sse = try http.NewSSESync();
     defer sse.close();
-    try publishCatList(app, &sse);
+    try pushCatList(app, &sse);
 
     var mq = try app.pubsub.connect();
     defer mq.deinit();
@@ -61,13 +65,13 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
 
     while (try mq.next()) |event| {
         switch (event) {
-            .msg => try publishCatList(app, &sse),
+            .msg => try pushCatList(app, &sse),
             .timeout => try sse.keepalive(),
         }
     }
 }
 
-fn publishCatList(app: *App, sse: *datastar.SSE) !void {
+fn pushCatList(app: *App, sse: *datastar.SSE) !void {
     var w = sse.patchElementsWriter(.{});
     try w.print(
         \\<div id="cat-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 mt-4 h-full" data-signals="{{ bids: [{d},{d},{d},{d},{d},{d}] }}">
@@ -95,8 +99,7 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
         app.mutex.unlock();
     }
 
-    const id_param = http.params.get("id") orelse "0";
-    const id = try std.fmt.parseInt(usize, id_param, 10);
+    const id = http.params.getInt(usize, "id") orelse 0;
 
     if (id < 0 or id >= app.cats.items.len) {
         return error.InvalidID;

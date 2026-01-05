@@ -4,7 +4,7 @@ prng.seed(@intCast(std.time.timestamp()));
 
 opt = try http.readSignals(struct{mathmlMorph: usize = 1});
 
-var sse = try datastar.NewSSESync(http);
+var sse = try http.NewSSESync();
 defer sse.close();
 
 if (opt.mathmlMorph == 1) {
