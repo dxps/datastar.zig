@@ -73,7 +73,10 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
 
     var sse = try http.NewSSESync();
     defer sse.close();
-    try app.publishAll(&sse, session);
+
+    // Because we push all state at the start of this SSE, we dont need a
+    // separate /hotreload endpoint
+    try app.pushAll(&sse, session);
 
     var mq = try app.pubsub.connect();
     defer mq.deinit();
@@ -87,8 +90,8 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
         std.debug.print("Session {s} got event {f}\n", .{ session, event });
         switch (event) {
             .msg => |m| switch (m.topic) {
-                .cats => try app.publishCatList(&sse, session),
-                .prefs => try app.publishAll(&sse, session),
+                .cats => try app.pushCatList(&sse, session),
+                .prefs => try app.pushAll(&sse, session),
             },
             .timeout => try sse.keepalive(),
         }
@@ -300,17 +303,17 @@ const App = struct {
         app.last_sort = sort;
     }
 
-    pub fn publishAll(app: *App, sse: *datastar.SSE, session: []const u8) !void {
-        try app.publishPrefs(sse, session);
-        try app.publishCatList(sse, session);
+    pub fn pushAll(app: *App, sse: *datastar.SSE, session: []const u8) !void {
+        try app.pushPrefs(sse, session);
+        try app.pushCatList(sse, session);
     }
 
-    pub fn publishCatList(app: *App, sse: *datastar.SSE, session: []const u8) !void {
+    pub fn pushCatList(app: *App, sse: *datastar.SSE, session: []const u8) !void {
         app.mutex.lock();
         defer app.mutex.unlock();
 
         const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
-        std.debug.print("publishCatList for session {s} with prefs {}\n", .{ session, sort_prefs });
+        std.debug.print("pushCatList for session {s} with prefs {}\n", .{ session, sort_prefs });
 
         app.sortCats(.id);
 
@@ -336,7 +339,7 @@ const App = struct {
         try sse.flush();
     }
 
-    pub fn publishPrefs(app: *App, sse: *datastar.SSE, session: []const u8) !void {
+    pub fn pushPrefs(app: *App, sse: *datastar.SSE, session: []const u8) !void {
         // just get the session prefs for the given session, and patch the signals
         // on the client to update.
         // So this is called when any other client sharing the same session

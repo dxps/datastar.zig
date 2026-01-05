@@ -642,7 +642,7 @@ to provide an embedded message broker for Datastar Apps in Zig. We will describe
 
 TODO - Rewrite this to discuss pubsub.zig, as well as other message brokers, including an example of using postgres notify
 
-# Local Development Helpers
+# Local Development Utilities
 
 The Zig Datastar SDK provides some built in tools to make local development and testing more pleasant.
 
