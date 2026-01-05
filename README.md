@@ -15,6 +15,118 @@ Versions :
 
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 
+# Installation and Usage
+
+To build an application using this SDK
+
+1) Add datastar.zig as a dependency in your `build.zig.zon`:
+
+```bash
+zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig#master"
+```
+
+2) In your `build.zig`, add the `datastar` module as a dependency you your program:
+
+```zig
+const datastar = b.dependency("datastar", .{
+    .target = target,
+    .optimize = optimize,
+});
+
+// the executable from your call to b.addExecutable(...)
+exe.root_module.addImport("datastar", datastar.module("datastar"));
+
+// or add the module "datastar" to the .imports section of your exe
+```
+
+3) In your application code
+
+Depends on the HTTP Framework you are using.
+
+This SDK does include a complete HTTP Framework for Zig 0.16 to get 
+you started. Here is a full example using this built in HTTP Server
+with Datastar specific SSE events.
+
+```zig
+
+const ADDRESS = "0.0.0.0"; // all IP addresses
+const PORT = 8080; 
+
+pub fn main() !void {
+    var gpa = std.heap.DebugAllocator(.{}).init;
+    const allocator = gpa.allocator();
+
+    // Evented isnt really working yet, so stick with Threaded IO for now
+    // Once Evented is functional, its just a 1 line change here to swap
+    // from heavy threads to coroutines
+    var threaded: Io.Threaded = .init(allocator);
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Create a server listening for new HTTP connections
+    var server = try HTTPServer.init(io, allocator, ADDRESS, PORT);
+    defer server.deinit();
+
+    // Setup all the routes
+    const r = server.router;
+    r.get("/", index);
+    r.get("/sse/:id", sseEndpoint);
+    ... all the routes
+
+    std.debug.print("Server listening on http://{s}:{}\n", .{ADDRESS, PORT});
+    try server.run();
+}
+
+// Handler code
+fn index(http: *HTTPRequest) !void {
+    // Note
+    // - Include the Datastar bundle (or you can host your own)
+    // - The body makes a call to /see to fetch content
+    // - The div id="hello" is a target for updating in the /sse call
+    // - The data-json-signals element provides debugging output for the current state of signals
+    return http.html(
+        \\<!DOCTYPE html>
+        \\<head>
+        \\  <script type="module"
+        \\    src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js">
+        \\  </script>
+        \\</head>
+
+        \\<body data-init="/sse/zig">
+        \\  <div id="hello">Loading ...</div>
+        \\  <pre data-json-signals></pre>
+        \\</body>
+    );
+}
+
+// A simple SSE endpoint that generates a set of events over the stream 
+fn sseEndpoint(http: *HTTPRequest) !void {
+    const id = http.params.get("id") orelse return error.NoID;
+
+    var sse = try http.NewSSE();
+    defer sse.close();
+
+    // Update just the id='hello' element in the DOM
+    try sse.patchElements("<div id='hello'>Hello World</div>");
+
+
+    try sse.patchSignals(.{.foo = 42, .bar = "Datastar Rocks"});
+    try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id});
+}
+```
+
+# Web Server that works with Zig 0.16-dev ?
+
+This 0.16 Version of the Datastar SDK includes a basic web development framework and fast radix-tree
+based router that uses the stdlib http server.
+
+You can use this built-in server, or you can use any other HTTP Server Framework that works with
+Zig 0.16. 
+
+See the example above in the install step about using the built in HTTP Server.
+
+See notes at the end of this document about adapting other HTTP Server Frameworks.
+
 # Audience and Scope
 
 Who is this repo for ?
@@ -129,115 +241,6 @@ of the api
 - example_6  (TODO) - a multi-tenant TicTacToe game, with lobby, and anon viewing
 
 
-# Installation and Usage
-
-To build an application using this SDK
-
-1) Add datastar.zig as a dependency in your `build.zig.zon`:
-
-```bash
-zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig#master"
-```
-
-2) In your `build.zig`, add the `datastar` module as a dependency you your program:
-
-```zig
-const datastar = b.dependency("datastar", .{
-    .target = target,
-    .optimize = optimize,
-});
-
-// the executable from your call to b.addExecutable(...)
-exe.root_module.addImport("datastar", datastar.module("datastar"));
-```
-
-3) In your application code
-
-Depends on the HTTP Framework you are using.
-
-This SDK does include a complete HTTP Framework for Zig 0.16 to get 
-you started. Here is a full example using this built in HTTP Server
-with Datastar specific SSE events.
-
-```zig
-
-const ADDRESS = "0.0.0.0"; // all IP addresses
-const PORT = 8080; 
-
-pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    const allocator = gpa.allocator();
-
-    // Evented isnt really working yet, so stick with Threaded IO for now
-    // Once Evented is functional, its just a 1 line change here to swap
-    // from heavy threads to coroutines
-    var threaded: Io.Threaded = .init(allocator);
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    // Create a server listening for new HTTP connections
-    var server = try HTTPServer.init(io, allocator, ADDRESS, PORT);
-    defer server.deinit();
-
-    // Setup all the routes
-    const r = server.router;
-    r.get("/", index);
-    r.get("/sse/:id", sseEndpoint);
-    ... all the routes
-
-    std.debug.print("Server listening on http://{s}:{}\n", .{ADDRESS, PORT});
-    try server.run();
-}
-
-
-// Handler code
-fn index(http: *HTTPRequest) !void {
-    // Note
-    // - Include the Datastar bundle (or you can host your own)
-    // - The body makes a call to /see to fetch content
-    // - The div id="hello" is a target for updating in the /sse call
-    // - The data-json-signals element provides debugging output for the current state of signals
-    return http.html(
-        \\<!DOCTYPE html>
-        \\<head>
-        \\  <script type="module"
-        \\    src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js">
-        \\  </script>
-        \\</head>
-
-        \\<body data-init="/sse/zig">
-        \\  <div id="hello">Loading ...</div>
-        \\  <pre data-json-signals></pre>
-        \\</body>
-    );
-}
-
-// A simple SSE endpoint that generates a set of events over the stream 
-fn sseEndpoint(http: *HTTPRequest) !void {
-    const id = http.params.get("id") orelse return error.NoID;
-
-    var sse = try http.NewSSE();
-    defer sse.close();
-
-    // Update just the id='hello' element in the DOM
-    try sse.patchElements("<div id='hello'>Hello World</div>");
-
-
-    try sse.patchSignals(.{.foo = 42, .bar = "Datastar Rocks"});
-    try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id});
-}
-```
-
-# Web Server ?
-
-This 0.16 Version of the Datastar SDK includes a basic web server and fast radix-tree based router that uses the stdlib server.
-
-You can use this built-in server, or you can use any other HTTP Server Framework that works with
-Zig 0.16. 
-
-See the example above in the install step about using the built in HTTP Server.
-
-See notes at the end of this document about adapting other HTTP Server Frameworks.
 
 # Functions
 
