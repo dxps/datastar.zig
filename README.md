@@ -643,6 +643,8 @@ In this case use `NewSSESync(http)` to set the SSE into Synchronous Mode.
 For example - in the SVGMorph demo, we want to generate a randomized SVG update, then write that to the client 
 browser, then pause for 100ms and repeat, to provide a smooth animation of the SVG.
 
+![NewSSE vs NewSSESync](docs/images/newsse_newssesync.png)
+
 ## Namespaces - SVG and MathML (Datastar RC7 feature)
 
 `patchElements()` works great when morphing small fragments into existing DOM content, using the element ID,
