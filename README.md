@@ -60,6 +60,10 @@ section that displays the code to use on your backend to drive the page you are 
 
 
 ---
+Example of SVG and MathML morphing from the backend
+
+https://github.com/user-attachments/assets/e8f48b44-c84d-4c43-9c1c-58a057db3e33
+
 
 To run the additional example apps, try
 
