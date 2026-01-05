@@ -666,7 +666,7 @@ for those handlers that want to subscribe to topics.
 
 For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
 
-This version of the SDK can be used easily with `https://github.com/zigster64/pubsub.zig`, which was custom built 
+This version of the SDK can be used easily with https://github.com/zigster64/pubsub.zig, which was custom built 
 to provide an embedded message broker for Datastar Apps in Zig. We will describe the usage of that in the following section.
 
 # Long Lived Connections
