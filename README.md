@@ -21,10 +21,14 @@ Who is this repo for ?
 
 - Anyone interested in using Datastar. https://data-star.dev.
 
-Allows you to build interactive Web UIs, driven from the backend server, using
-declarative HTML.
+Datastar allows you to build interactive Web UIs, driven from the backend server, using
+declarative HTML. It is particularly good for doing real time push updates, event sourcing, and
+multi-player or collaborative applications.
 
-It uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
+See the end of this document for more resources if you want to know more 
+about Datastar.
+
+Datastar uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
 SDK functions to write the same app in Go, Clojure, C#, PHP, Python, Bun, Ruby, Rust, Lisp, Racket, Java, etc. 
 
 This project adds Zig 0.16-dev to that list of supported SDK languages.
@@ -804,6 +808,39 @@ pub fn setCookie(self: *HTTPRequest, name: []const u8, value: []const u8)
 pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8
 
 ```
+
+# More Info on Datastar
+
+If you are still curious about Datastar, and wondering if its right for your app, here are some more resources
+to peruse. 
+
+The following videos will give you a really good idea if Datastar is for you or not.
+
+Short Overview
+
+[![Episode 1 - Datastar | Datastar Series](https://img.youtube.com/vi/I8QLWWPGT-c/0.jpg)](https://youtu.be/I8QLWWPGT-c)
+
+[![Episode 2 - Rockets Eye Overview | Datastar Series](https://img.youtube.com/vi/zQAz7fV95OU/0.jpg)](https://youtu.be/zQAz7fV95OU)
+
+In-Depth dive from the creator of Datastar
+
+[![Why We’re Building the Front End Wrong](https://img.youtube.com/vi/FtAuSAOMNtM/0.jpg)](https://www.youtube.com/watch?v=FtAuSAOMNtM)
+
+Other recommended viewing
+
+[![Datastar Hypermedia Framework - combining HTMX + Alpine.js functionality!](https://img.youtube.com/vi/u4_rNG--QMc/0.jpg)](https://youtu.be/u4_rNG--QMc)
+
+[![Real-time Hypermedia - Delaney Gillilan](https://img.youtube.com/vi/0K71AyAF6E4/0.jpg)](https://youtu.be/0K71AyAF6E4)
+
+[![Intro to Datastar (and Craft CMS)](https://img.youtube.com/vi/aVjU1st-52g/0.jpg)](https://www.youtube.com/live/aVjU1st-52g)
+
+[![What Datastar is Not, with JLarky](https://img.youtube.com/vi/p4X02rEPkJY/0.jpg)](https://youtu.be/p4X02rEPkJY)
+
+Datastar Discord
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/YfFn7pKx)
+
+Zig Discord
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/Chk5WKM5)
 
 # Contrib Policy
 
