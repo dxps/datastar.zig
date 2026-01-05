@@ -154,76 +154,93 @@ const datastar = b.dependency("datastar", .{
 exe.root_module.addImport("datastar", datastar.module("datastar"));
 ```
 
-# Web Server ?
+3) In your application code
 
-This 0.16 Version of the Datastar SDK includes a basic web server and fast radix-tree based router that uses the stdlib server.
+Depends on the HTTP Framework you are using.
 
-You can use this built-in server if you want to start experiminting with Zig 0.16-dev, as it has no other dependencies outside of stdlib.
+This SDK does include a complete HTTP Framework for Zig 0.16 to get 
+you started. Here is a full example using this built in HTTP Server
+with Datastar specific SSE events.
 
-Full example of a main() using the 
+```zig
 
-```zig 
-const std = @import("std");
-const datastar = @import("datastar");
-
-const Io = std.Io;
-
-const PORT = 8080;
+const ADDRESS = "0.0.0.0"; // all IP addresses
+const PORT = 8080; 
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    var gpa = std.heap.DebugAllocator(.{}).init;
     const allocator = gpa.allocator();
 
+    // Evented isnt really working yet, so stick with Threaded IO for now
+    // Once Evented is functional, its just a 1 line change here to swap
+    // from heavy threads to coroutines
     var threaded: Io.Threaded = .init(allocator);
     defer threaded.deinit();
     const io = threaded.io();
 
-    // Create a server listening on all IP addresses, including IPv6
-    const HTTPServer = datastar.Server(void);
-    var server = try HTTPServer.initIp6(io, allocator, PORT);
+    // Create a server listening for new HTTP connections
+    var server = try HTTPServer.init(io, allocator, ADDRESS, PORT);
     defer server.deinit();
 
-    // Add some routes with different http methods
+    // Setup all the routes
     const r = server.router;
     r.get("/", index);
-    r.get("/text-html", textHtml);
-    r.get("/patch", patchElements);
-    r.post("/patch/opts", patchElementsOpts);
-    r.get("/code/:snip", code);
+    r.get("/sse/:id", sseEndpoint);
+    ... all the routes
 
-    // Optional - setup a hot relaad endpoint for the client if the server restarts
-    r.post("/hotreload", datastar.hotreload);
-
-    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
-
-    // optional function to reboot the server on re-compile
-    // try this if you are doing local dev
-    try server.rebooter();
-
-    // everything is set, so start the server up
+    std.debug.print("Server listening on http://{s}:{}\n", .{ADDRESS, PORT});
     try server.run();
 }
 
-// all handlers receive a single HTTPRequest param
-fn index(http: *datastar.HTTPRequest) !void {
-    // http has verbs such as html() to send HTML, json() to send JSON, etc
-    return try http.html(@embedFile("index.html"));
-}
 
-fn patchElements(http: *datastar.HTTPRequest) !void {
-    // here we call NewSSE() on the http request, which sets this into 
-    // event-stream mode.
-    var sse = try http.NewSSE();
-    defer sse.close(); // Sends off the SSE event stream, and closes the connection
+// Handler code
+fn index(http: *HTTPRequest) !void {
+    // Note
+    // - Include the Datastar bundle (or you can host your own)
+    // - The body makes a call to /see to fetch content
+    // - The div id="hello" is a target for updating in the /sse call
+    // - The data-json-signals element provides debugging output for the current state of signals
+    return http.html(
+        \\<!DOCTYPE html>
+        \\<head>
+        \\  <script type="module"
+        \\    src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js">
+        \\  </script>
+        \\</head>
 
-    try sse.patchElementsFmt(
-        \\<p id="mf-patch">This is update number {d}</p>
-    ,
-        .{getCountAndIncrement()},
-        .{},
+        \\<body data-init="/sse/zig">
+        \\  <div id="hello">Loading ...</div>
+        \\  <pre data-json-signals></pre>
+        \\</body>
     );
 }
+
+// A simple SSE endpoint that generates a set of events over the stream 
+fn sseEndpoint(http: *HTTPRequest) !void {
+    const id = http.params.get("id") orelse return error.NoID;
+
+    var sse = try http.NewSSE();
+    defer sse.close();
+
+    // Update just the id='hello' element in the DOM
+    try sse.patchElements("<div id='hello'>Hello World</div>");
+
+
+    try sse.patchSignals(.{.foo = 42, .bar = "Datastar Rocks"});
+    try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id});
+}
 ```
+
+# Web Server ?
+
+This 0.16 Version of the Datastar SDK includes a basic web server and fast radix-tree based router that uses the stdlib server.
+
+You can use this built-in server, or you can use any other HTTP Server Framework that works with
+Zig 0.16. 
+
+See the example above in the install step about using the built in HTTP Server.
+
+See notes at the end of this document about adapting other HTTP Server Frameworks.
 
 # Functions
 
@@ -292,6 +309,8 @@ The built in HTTPServer provides a simple fast router
 ```zig
 var app = App.init(allocator); // create a global state context for this app
 var server = try datastar.Server(*App).initIp6(io, allocator, PORT);
+server.setContext(&app);
+
 var r = server.router;  // get the router from the Server we created
 
 r.get(path, handler)
@@ -316,6 +335,10 @@ When using the built in HTTPServer, all handlers receive either :
 - a single paramater of type `*HTTPRequest` for servers of type `Server(void)`
 - a context, and a `*HTTPRequest` for servers of type `Server(T)`
 
+See the above code example, where a global context of type `App` is created,
+and the server is defined as `Server(*App)`, followed by `server.setContext(&app)`.
+
+In this case, the handler functions now all receive that global context.
 
 This HTTPRequest has the following features :
 
@@ -351,8 +374,7 @@ provides a lot of very low level control options for returning responses there.
 Calling NewSSE on the HTTPRequest will return an object of type SSE.
 
 ```zig
-   in struct HTTPRequest -
-    pub fn NewSSE(http: *HTTPRequest) !SSE 
+    sse.NewSSE() !SSE 
 ```
 
 This will configure the connnection for SSE transfers, and provides an object with Datastar methods for
@@ -370,14 +392,14 @@ You can declare your sse object early in the handler, and then set headers / coo
 in the handler. Because actual network updates are batched till the end, everything goes out in the correct order.
 
 ```zig
-    pub fn NewSSESync(http: *HTTPRequest) !SSE 
+    sse.NewSSESync() !SSE 
 ```
 Will create an SSE object that will do immediate Synchronous Writes to the browser as each `patchElements()` call is made.
 
 Finally, there is a NewSSE variant that takes a set of options, for special cases
 
 ```zig
-    pub fn NewSSEOpt(http, SSEOptions) !SSE
+    sse.NewSSEOpt(SSEOptions) !SSE
 
     // Where options are 
     const SSEOptions = struct {
@@ -393,7 +415,7 @@ Using the built in HTTPServer
     pub fn http.readSignals(comptime T: type) !T
 ```
 
-Using other HTTP Server libs - generic version 
+Using a generic version for other HTTP Frameworks
 ```zig
     pub fn datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T
 ```
