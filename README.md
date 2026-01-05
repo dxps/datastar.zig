@@ -10,9 +10,10 @@ https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
 
 Versions :
 - Datastar 1.0.0-RC7
-- Zig 0.16.x
+- Zig 0.16-dev
 
-See Also http://github.com/zigster64/datastar.http.zig for the Datastar SDK for zig 0.15.2 sitting on top of http.zig
+
+For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 
 # Audience and Scope
 
