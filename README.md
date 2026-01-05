@@ -668,15 +668,16 @@ for those handlers that want to subscribe to topics.
 
 For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
 
-The example apps in this SDK that require PubSub, use the embedded message broker here https://github.com/zigster64/pubsub.zig, 
-.. which was actually custom built specifically for these Datastar SSE runners.
+The example apps in this SDK that require PubSub, use this embedded message broker https://github.com/zigster64/pubsub.zig
+
+.. which was custom built specifically for these Datastar SSE runners.
 
 This message broker is optional, but it is already bundled in the SDK if you want to make use of it.
 
-You can see this being used in `02_cats.zig`
+You can see this being used in `02_cats.zig` for example, to update bids on cat auction.
 
 ```zig
-// PubSub broker is bundled in the SDK for you already
+// Optional embedded PubSub broker is bundled in the SDK for easy access
 const pubsub = datastar.pubsub;
 
 // SSE persistent handler that subscribes to the message broker
