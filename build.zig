@@ -61,6 +61,7 @@ pub fn build(b: *std.Build) void {
         .{ .file = "examples/01_basic.zig", .name = "example_1" },
         .{ .file = "examples/02_cats.zig", .name = "example_2" },
         .{ .file = "examples/03_wildcats.zig", .name = "example_3" },
+        .{ .file = "examples/05_garden.zig", .name = "example_5" },
     };
 
     for (examples) |ex| {

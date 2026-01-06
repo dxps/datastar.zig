@@ -1,13 +1,207 @@
 const std = @import("std");
-const Stream = std.net.Stream;
-const httpz = @import("httpz");
-const logz = @import("logz");
 const datastar = @import("datastar");
+const pubsub = datastar.pubsub;
 
+const Io = std.Io;
 const Allocator = std.mem.Allocator;
-const PORT = 8085;
+const HTTPRequest = datastar.HTTPRequest;
 
 const GM = false;
+const homepage = @embedFile("05_index.html");
+
+const PORT = 8085;
+
+// Schema for messages passed over pubsub
+const MQSchema = union(enum) {
+    plants: void,
+    crops: void,
+};
+
+// SSE and pub/sub to have realtime updates of updates to the garden
+pub fn main() !void {
+    // create allocator
+    var gpa: std.heap.DebugAllocator(.{}) = .init;
+    const allocator = gpa.allocator();
+
+    // create the Io - use threaded for now
+    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // create global app instance
+    var app = try App.init(io, allocator);
+    defer app.deinit();
+
+    // create the server
+    const HTTPServer = datastar.Server(*App);
+    var server = try HTTPServer.initIp6(io, allocator, PORT);
+    server.setContext(app);
+    defer server.deinit();
+
+    _ = try Io.concurrent(io, updateLoop, .{app});
+
+    // create routes
+    {
+        const r = server.router;
+        r.get("/", index);
+        r.get("/plants", plantList);
+        r.post("/planteffect/:side/:plantid", postPlantEffect);
+        r.get("/assets/:assetname", getAsset);
+    }
+
+    std.debug.print("listening http://localhost:{d}/\n", .{PORT});
+    try server.rebooter();
+    try server.run();
+}
+
+fn updateLoop(app: *App) !void {
+    while (true) {
+        try app.updatePlants();
+        try app.io.sleep(.fromSeconds(1), .real);
+    }
+}
+
+fn index(_: *App, http: *HTTPRequest) !void {
+    try http.html(homepage);
+}
+
+fn getAsset(_: *App, http: *HTTPRequest) !void {
+    const file_name = http.params.get("assetname") orelse return error.NoAssetName;
+    // Validate filename - prevent path traversal
+    if (std.mem.indexOf(u8, file_name, "..") != null or
+        std.mem.indexOf(u8, file_name, "/") != null or
+        std.mem.indexOf(u8, file_name, "\\") != null)
+    {
+        return error.InvalidFilename;
+    }
+    const static_dir = "./examples/assets/fantasy_crops";
+    const fullPath = try std.fmt.allocPrint(http.arena, "{s}/{s}", .{ static_dir, file_name });
+    const file = try std.Io.Dir.cwd().openFile(http.io, fullPath, .{});
+    defer file.close(http.io);
+    const file_size = try file.length(http.io);
+    const buffer = try http.arena.alloc(u8, file_size);
+    _ = try file.readPositionalAll(http.io, buffer, 0);
+
+    // TODO - make some decent helpers for these content-type responses !!
+    try http.req.respond(
+        buffer,
+        .{ .extra_headers = &.{.{
+            .name = "content-type",
+            .value = getContentType(fullPath),
+        }} },
+    );
+}
+
+fn getContentType(filename: []const u8) []const u8 {
+    if (std.mem.endsWith(u8, filename, ".png")) return "image/png";
+    if (std.mem.endsWith(u8, filename, ".jpg") or std.mem.endsWith(u8, filename, ".jpeg")) return "image/jpeg";
+    if (std.mem.endsWith(u8, filename, ".gif")) return "image/gif";
+    if (std.mem.endsWith(u8, filename, ".svg")) return "image/svg+xml";
+    return "application/octet-stream";
+}
+
+fn plantList(app: *App, http: *HTTPRequest) !void {
+    var sse = try http.NewSSESync();
+    // defer sse.close();
+
+    try app.pushAll(&sse);
+
+    var mq = try app.pubsub.connect();
+    defer mq.deinit();
+
+    try mq.subscribe(.plants);
+    try mq.subscribe(.crops);
+    mq.setTimeout(.fromSeconds(30));
+
+    while (try mq.next()) |event| {
+        switch (event) {
+            .msg => |m| {
+                std.debug.print("Event: {}\n", .{m.topic});
+                switch (m.topic) {
+                    .plants => {
+                        try app.pushPlantList(&sse);
+                    },
+                    .crops => {
+                        try app.pushCropCounts(&sse);
+                    },
+                }
+            },
+            .timeout => {
+                std.debug.print("timeout\n", .{});
+                try sse.keepalive();
+            },
+        }
+    }
+    std.debug.print("no more events ...\n", .{});
+}
+
+fn postPlantEffect(app: *App, http: *HTTPRequest) !void {
+    app.mutex.lock();
+    defer app.mutex.unlock();
+
+    const side_param = http.params.get("side") orelse return error.NoSide;
+    const left = if (std.mem.eql(u8, side_param, "inc")) true else false;
+
+    const id = http.params.getInt(u8, "plantid") orelse return error.NoPlantID;
+
+    if (id < 0 or id >= 4) return error.InvalidID;
+
+    const signals = try http.readSignals(struct { hand: []const u8 });
+
+    var plant_slot = app.plants[id];
+    if (plant_slot) |*plant| { // Plant exists
+        if (plant.growth_stage == .Fruiting) { //Collect crop and update crop counter
+            switch (plant.crop_type) {
+                .Carrot => {
+                    app.crop_counts[0] += 1;
+                },
+                .Radish => {
+                    app.crop_counts[1] += 1;
+                },
+                .Gourd => {
+                    app.crop_counts[2] += 1;
+                },
+                .Onion => {
+                    app.crop_counts[3] += 1;
+                },
+            }
+            app.plants[id] = null;
+            try app.pubsub.publish(.{ .plants = {} }, .all);
+            try app.pubsub.publish(.{ .crops = {} }, .all);
+            return;
+        }
+
+        if (app.plants[id] == null) {
+            return error.InvalidID;
+        }
+
+        if (std.mem.eql(u8, signals.hand, "watering")) {
+            app.plants[id].?.stats.water += if (left) 0.1 else 0;
+        } else if (std.mem.eql(u8, signals.hand, "fertilizing")) {
+            app.plants[id].?.stats.ph += if (left) 0.1 else -0.1;
+        } else if (std.mem.eql(u8, signals.hand, "sunning")) {
+            app.plants[id].?.stats.sun += if (left) 0.1 else -0.1;
+        } else if (std.mem.eql(u8, signals.hand, "shovel")) {
+            // Remove plant at index
+            app.plants[id] = null;
+        }
+    } else {
+        if (std.mem.eql(u8, signals.hand, "carrot")) {
+            app.plants[id] = CarrotConfig;
+        } else if (std.mem.eql(u8, signals.hand, "gourd")) {
+            app.plants[id] = GourdConfig;
+        } else if (std.mem.eql(u8, signals.hand, "radish")) {
+            app.plants[id] = RadishConfig;
+        } else if (std.mem.eql(u8, signals.hand, "onion")) {
+            app.plants[id] = OnionConfig;
+        }
+    }
+    // update any screens subscribed to "plants"
+    try app.pubsub.publish(.{ .plants = {} }, .all);
+
+    // need to respond
+    try http.json(.{ .id = id, .side = side_param, .left = left, .hand = signals.hand, .plant = app.plants[id] });
+}
 
 const Plant = struct {
     crop_type: CropType,
@@ -50,6 +244,7 @@ const Plant = struct {
         Elder,
         Fruiting,
     };
+
     pub fn update(p: *Plant) !void {
         p.changed = false;
         if (p.state == .Dead or p.growth_stage == .Fruiting) {
@@ -101,7 +296,7 @@ const Plant = struct {
         }
 
         // Update water
-        std.debug.print("Updating stats...\n", .{});
+        // std.debug.print("Updating stats...\n", .{});
 
         if (GM) {
             // Do not reduce stats
@@ -122,15 +317,26 @@ const Plant = struct {
             p.growth_stage = @enumFromInt(@intFromEnum(p.growth_stage) + 1);
             p.growth_steps = 0;
         }
-        std.debug.print("Plant stats: {{water: {d}, ph: {d}, sun: {d}}}\n", .{
+        std.debug.print("Plant stats: {t}:{t}:{t} {{water: {d}, ph: {d}, sun: {d}}}\n", .{
+            p.crop_type,
+            p.growth_stage,
+            p.state,
             p.stats.water,
             p.stats.ph,
             p.stats.sun,
         });
     }
 
-    pub fn render(p: Plant, id: usize, w: anytype, gpa: std.mem.Allocator) !void {
-        const img_name = try std.fmt.allocPrint(gpa, image_format_string, .{p.image_base_index + @intFromEnum(p.growth_stage)});
+    pub fn render(p: Plant, id: usize, w: anytype, allocator: std.mem.Allocator) !void {
+        const img_name = try std.fmt.allocPrint(
+            allocator,
+            image_format_string,
+            .{
+                p.image_base_index + @intFromEnum(p.growth_stage),
+            },
+        );
+        defer allocator.free(img_name);
+
         const img_class: []const u8 = switch (p.state) {
             .Dead => "dead",
             .Dying => "dying",
@@ -195,7 +401,7 @@ const StartingStats: Plant.PlantStats = .{
     .sun = 0.5,
 };
 
-pub const CarrotConfig = Plant{
+const CarrotConfig = Plant{
     .crop_type = .Carrot,
     .image_base_index = 0,
     .desired_stats = .{
@@ -206,7 +412,7 @@ pub const CarrotConfig = Plant{
     .stats = StartingStats,
 };
 
-pub const RadishConfig = Plant{
+const RadishConfig = Plant{
     .crop_type = .Radish,
     .image_base_index = 49,
     .desired_stats = .{
@@ -217,7 +423,7 @@ pub const RadishConfig = Plant{
     .stats = StartingStats,
 };
 
-pub const GourdConfig = Plant{
+const GourdConfig = Plant{
     .crop_type = .Gourd,
     .image_base_index = 28,
     .desired_stats = .{
@@ -228,7 +434,7 @@ pub const GourdConfig = Plant{
     .stats = StartingStats,
 };
 
-pub const OnionConfig = Plant{
+const OnionConfig = Plant{
     .crop_type = .Onion,
     .image_base_index = 70,
     .desired_stats = .{
@@ -239,19 +445,21 @@ pub const OnionConfig = Plant{
     .stats = StartingStats,
 };
 
-pub const App = struct {
-    gpa: Allocator,
+const App = struct {
+    io: Io,
+    allocator: Allocator,
     plants: [4]?Plant,
     mutex: std.Thread.Mutex,
-    subscribers: datastar.Subscribers(*App),
+    pubsub: pubsub.PubSub(MQSchema),
 
     // Represented in the order of (0) Carrot (1) Radish (2) Gourd (3) Onion
     crop_counts: [4]u32 = [_]u32{ 0, 0, 0, 0 },
 
-    pub fn init(gpa: Allocator) !*App {
-        const app = try gpa.create(App);
+    pub fn init(io: Io, allocator: Allocator) !*App {
+        const app = try allocator.create(App);
         app.* = .{
-            .gpa = gpa,
+            .io = io,
+            .allocator = allocator,
             .mutex = .{},
             .plants = .{
                 CarrotConfig,
@@ -259,34 +467,23 @@ pub const App = struct {
                 GourdConfig,
                 OnionConfig,
             },
-            .subscribers = try datastar.Subscribers(*App).init(gpa, app),
+            .pubsub = pubsub.PubSub(MQSchema).init(io, allocator),
         };
         return app;
     }
 
     pub fn deinit(app: *App) void {
-        app.gpa.destroy(app);
+        app.allocator.destroy(app);
     }
 
-    // convenience function
-    pub fn subscribe(app: *App, topic: []const u8, stream: Stream, callback: anytype) !void {
-        try app.subscribers.subscribe(topic, stream, callback);
+    pub fn pushAll(app: *App, sse: *datastar.SSE) !void {
+        try app.pushPlantList(sse);
+        try app.pushCropCounts(sse);
     }
 
-    // convenience function
-    pub fn publish(app: *App, topic: []const u8) !void {
-        try app.subscribers.publish(topic);
-    }
-
-    pub fn publishPlantList(app: *App, stream: Stream, _: ?[]const u8) !void {
-        const t1 = std.time.microTimestamp();
-        defer {
-            const t2 = std.time.microTimestamp();
-            logz.info().string("event", "publishPlantList").int("stream", stream.handle).int("elapsed (μs)", t2 - t1).log();
-        }
-
-        var sse = datastar.NewSSEFromStream(stream, app.gpa);
-        defer sse.deinit();
+    pub fn pushPlantList(app: *App, sse: *datastar.SSE) !void {
+        app.mutex.lock();
+        defer app.mutex.unlock();
 
         var w = sse.patchElementsWriter(.{});
         try w.print(
@@ -295,7 +492,7 @@ pub const App = struct {
 
         for (0..4) |i| {
             if (app.plants[i]) |p| {
-                try p.render(i, w, app.gpa);
+                try p.render(i, w, app.allocator);
             } else {
                 try w.print(
                     \\<div class="card px-16 py-6 w-fit h-fit bg-yellow-700 card-lg shadow-sm m-auto mt-4 border-4 border-solid border-yellow-900">
@@ -309,25 +506,14 @@ pub const App = struct {
         try w.writeAll(
             \\</div>
         );
+        try sse.flush();
     }
 
-    pub fn publishCropCounts(app: *App, stream: Stream, _: ?[]const u8) !void {
-        const t1 = std.time.microTimestamp();
-        defer {
-            const t2 = std.time.microTimestamp();
-            logz.info().string("event", "publishCropCounts").int("stream", stream.handle).int("elapsed (μs)", t2 - t1).log();
-        }
+    pub fn pushCropCounts(app: *App, sse: *datastar.SSE) !void {
+        app.mutex.lock();
+        defer app.mutex.unlock();
 
-        const Counts = struct {
-            carrots: usize,
-            radishes: usize,
-            gourds: usize,
-            onions: usize,
-        };
-        var sse = datastar.NewSSEFromStream(stream, app.gpa);
-        defer sse.deinit();
-
-        try sse.patchSignals(Counts{
+        try sse.patchSignals(.{
             .carrots = app.crop_counts[0],
             .radishes = app.crop_counts[1],
             .gourds = app.crop_counts[2],
@@ -336,6 +522,9 @@ pub const App = struct {
     }
 
     pub fn updatePlants(app: *App) !void {
+        app.mutex.lock();
+        defer app.mutex.unlock();
+
         var has_changes: bool = false;
         for (0..4) |i| {
             if (app.plants[i]) |*p| {
@@ -346,7 +535,7 @@ pub const App = struct {
             }
         }
         if (has_changes) {
-            try app.publish("plants");
+            try app.pubsub.publish(.{ .plants = {} }, .all);
         }
     }
 };

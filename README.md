@@ -12,6 +12,11 @@ Versions :
 - Datastar 1.0.0-RC7
 - Zig 0.16-dev
 
+NOTE - Zig 0.16-dev has breaking changes, and will for while. Keep this in mind if having fun
+with being on the bleeding edge !! You have been warned !!
+
+6-Jan-2026
+`.minimum_zig_version = "0.16.0-dev.1912+0cbaaa5eb"`
 
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 
@@ -86,7 +91,7 @@ pub fn main() !void {
     // Evented isnt really working yet, so stick with Threaded IO for now
     // Once Evented is functional, its just a 1 line change here to swap
     // from heavy threads to coroutines
-    var threaded: Io.Threaded = .init(allocator);
+    var threaded: Io.Threaded = .init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
@@ -691,7 +696,7 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
 
     // Subscribe to the message broker
     try mq.subscribe(.cats); 
-    mq.setTimeout(30 * std.time.ns_per_s);
+    mq.setTimeout(.fromSeconds(30));
 
     // loop forever over the events
     while (try mq.next()) |event| {

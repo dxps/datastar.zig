@@ -58,9 +58,7 @@ pub fn Server(comptime Context: type) type {
         }
 
         fn handleConnection(self: *Self, conn: Io.net.Stream) void {
-            defer {
-                conn.close(self.io);
-            }
+            defer conn.close(self.io);
 
             var read_buffer: [4096]u8 = undefined;
             var write_buffer: [4096]u8 = undefined;
@@ -100,16 +98,21 @@ pub fn Server(comptime Context: type) type {
         }
 
         fn watchLoop(self: *Self) !void {
-            const cwd = std.fs.cwd();
+            const self_path = try std.process.executablePathAlloc(self.io, self.allocator);
+            defer self.allocator.free(self_path);
+            std.debug.print("exe path is {s}\n", .{self_path});
 
             var initial_inode: u64 = 0;
             var initial_mtime: Io.Timestamp = .zero;
-            const path = try std.fs.selfExePathAlloc(self.allocator);
-            defer self.allocator.free(path);
 
             // wait around till the inital inode is available
             while (true) {
-                const stat = cwd.statFile(path) catch {
+                const file = std.Io.Dir.cwd().openFile(self.io, self_path, .{}) catch {
+                    try self.io.sleep(.fromSeconds(2), .real);
+                    continue;
+                };
+                defer file.close(self.io);
+                const stat = file.stat(self.io) catch {
                     try self.io.sleep(.fromSeconds(2), .real);
                     continue;
                 };
@@ -121,8 +124,12 @@ pub fn Server(comptime Context: type) type {
             while (true) {
                 try self.io.sleep(.fromSeconds(2), .real);
 
-                const stat = cwd.statFile(path) catch |err| {
-                    std.debug.print("Path {s} failed to stat(): {}\n", .{ path, err });
+                const file = std.Io.Dir.cwd().openFile(self.io, self_path, .{}) catch |err| {
+                    std.debug.print("Path {s} cannot open: {}\n", .{ self_path, err });
+                    continue;
+                };
+                const stat = file.stat(self.io) catch |err| {
+                    std.debug.print("Path {s} failed to stat(): {}\n", .{ self_path, err });
                     continue;
                 };
 
@@ -133,7 +140,6 @@ pub fn Server(comptime Context: type) type {
                     std.debug.print("Binary Changed - Reboot ♻️\n", .{});
 
                     const args = try std.process.argsAlloc(self.allocator);
-                    const self_path = try std.fs.selfExePathAlloc(self.allocator);
 
                     var exec_args: std.ArrayList([]const u8) = .empty;
                     try exec_args.append(self.allocator, self_path);
@@ -275,7 +281,7 @@ pub fn Router(comptime Context: type) type {
             var path = http.req.head.target;
             const q = std.mem.indexOfScalar(u8, path, '?') orelse path.len;
             path = path[0..q];
-            std.debug.print("{t} {s}\n", .{ http.req.head.method, path });
+            // std.debug.print("{t} {s}\n", .{ http.req.head.method, path });
 
             const method_idx = @intFromEnum(http.req.head.method);
             if (current.handlers[method_idx]) |h| {

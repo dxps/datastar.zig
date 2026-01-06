@@ -28,10 +28,7 @@ pub fn main() !void {
     var gpa = std.heap.DebugAllocator(.{}).init;
     const allocator = gpa.allocator();
 
-    // Evented isnt really working yet, so stick with Threaded IO for now
-    // Once Evented is functional, its just a 1 line change here to swap
-    // from heavy threads to coroutines
-    var threaded: Io.Threaded = .init(allocator);
+    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
     defer threaded.deinit();
     const io = threaded.io();
 
