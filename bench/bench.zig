@@ -14,23 +14,25 @@ pub fn main() !void {
     threaded.setAsyncLimit(std.Io.Limit.limited64(10));
     const io = threaded.io();
 
-    var server = try datastar.Server.init(io, allocator, "0.0.0.0", 8090);
+    var server = try datastar.Server(void).initIp6(io, allocator, 8090);
     defer server.deinit();
 
-    const r = server.router;
-    try r.get("/", handler);
-    try r.get("/log", handlerLogged);
-    try r.get("/sse", sseHandler);
+    {
+        const r = server.router;
+        r.get("/", handler);
+        r.get("/log", handlerLogged);
+        r.get("/sse", sseHandler);
+    }
 
     std.debug.print("Zig Datastar 0.16-dev SSE Server running at http://localhost:8090\n", .{});
     try server.run();
 }
 
-pub fn handler(http: HTTPRequest) !void {
+pub fn handler(http: *HTTPRequest) !void {
     return http.html(@embedFile("index.html"));
 }
 
-pub fn handlerLogged(http: HTTPRequest) !void {
+pub fn handlerLogged(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer {
         std.debug.print("Zig index handler took {} microseconds\n", .{t1.read() / std.time.ns_per_ms});
@@ -38,12 +40,12 @@ pub fn handlerLogged(http: HTTPRequest) !void {
     return http.html(@embedFile("index.html"));
 }
 
-pub fn sseHandler(http: HTTPRequest) !void {
+pub fn sseHandler(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer {
         std.debug.print("Zig SSE handler took {} microseconds\n", .{t1.read() / std.time.ns_per_ms});
     }
-    var sse = try datastar.NewSSE(http);
+    var sse = try http.NewSSE();
     defer sse.close();
 
     try sse.patchElements(@embedFile("index.html"), .{});
