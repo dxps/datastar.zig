@@ -128,6 +128,8 @@ pub fn Server(comptime Context: type) type {
                     std.debug.print("Path {s} cannot open: {}\n", .{ self_path, err });
                     continue;
                 };
+                defer file.close(self.io);
+
                 const stat = file.stat(self.io) catch |err| {
                     std.debug.print("Path {s} failed to stat(): {}\n", .{ self_path, err });
                     continue;
