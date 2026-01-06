@@ -58,9 +58,7 @@ pub fn Server(comptime Context: type) type {
         }
 
         fn handleConnection(self: *Self, conn: Io.net.Stream) void {
-            defer {
-                conn.close(self.io);
-            }
+            defer conn.close(self.io);
 
             var read_buffer: [4096]u8 = undefined;
             var write_buffer: [4096]u8 = undefined;
@@ -113,6 +111,7 @@ pub fn Server(comptime Context: type) type {
                     try self.io.sleep(.fromSeconds(2), .real);
                     continue;
                 };
+                defer file.close(self.io);
                 const stat = file.stat(self.io) catch {
                     try self.io.sleep(.fromSeconds(2), .real);
                     continue;

@@ -81,8 +81,9 @@ fn getAsset(_: *App, http: *HTTPRequest) !void {
     const file_size = try file.length(http.io);
     const buffer = try http.arena.alloc(u8, file_size);
     _ = try file.readPositionalAll(http.io, buffer, 0);
+
     // TODO - make some decent helpers for these content-type responses !!
-    http.req.respond(
+    try http.req.respond(
         buffer,
         .{ .extra_headers = &.{.{
             .name = "content-type",
@@ -100,11 +101,8 @@ fn getContentType(filename: []const u8) []const u8 {
 }
 
 fn plantList(app: *App, http: *HTTPRequest) !void {
-    app.mutex.lock();
-    defer app.mutex.unlock();
-
     var sse = try http.NewSSESync();
-    defer sse.close();
+    // defer sse.close();
 
     try app.pushAll(&sse);
 
@@ -117,13 +115,24 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
 
     while (try mq.next()) |event| {
         switch (event) {
-            .msg => |m| switch (m.topic) {
-                .plants => {},
-                .crops => {},
+            .msg => |m| {
+                std.debug.print("Event: {}\n", .{m.topic});
+                switch (m.topic) {
+                    .plants => {
+                        try app.pushPlantList(&sse);
+                    },
+                    .crops => {
+                        try app.pushCropCounts(&sse);
+                    },
+                }
             },
-            .timeout => try sse.keepalive(),
+            .timeout => {
+                std.debug.print("timeout\n", .{});
+                try sse.keepalive();
+            },
         }
     }
+    std.debug.print("no more events ...\n", .{});
 }
 
 fn postPlantEffect(app: *App, http: *HTTPRequest) !void {
@@ -157,9 +166,13 @@ fn postPlantEffect(app: *App, http: *HTTPRequest) !void {
                 },
             }
             app.plants[id] = null;
-            try app.publish("plants");
-            try app.publish("crops");
+            try app.pubsub.publish(.{ .plants = {} }, .all);
+            try app.pubsub.publish(.{ .crops = {} }, .all);
             return;
+        }
+
+        if (app.plants[id] == null) {
+            return error.InvalidID;
         }
 
         if (std.mem.eql(u8, signals.hand, "watering")) {
@@ -185,6 +198,9 @@ fn postPlantEffect(app: *App, http: *HTTPRequest) !void {
     }
     // update any screens subscribed to "plants"
     try app.pubsub.publish(.{ .plants = {} }, .all);
+
+    // need to respond
+    try http.json(.{ .id = id, .side = side_param, .left = left, .hand = signals.hand, .plant = app.plants[id] });
 }
 
 const Plant = struct {
@@ -228,6 +244,7 @@ const Plant = struct {
         Elder,
         Fruiting,
     };
+
     pub fn update(p: *Plant) !void {
         p.changed = false;
         if (p.state == .Dead or p.growth_stage == .Fruiting) {
@@ -279,7 +296,7 @@ const Plant = struct {
         }
 
         // Update water
-        std.debug.print("Updating stats...\n", .{});
+        // std.debug.print("Updating stats...\n", .{});
 
         if (GM) {
             // Do not reduce stats
@@ -300,7 +317,10 @@ const Plant = struct {
             p.growth_stage = @enumFromInt(@intFromEnum(p.growth_stage) + 1);
             p.growth_steps = 0;
         }
-        std.debug.print("Plant stats: {{water: {d}, ph: {d}, sun: {d}}}\n", .{
+        std.debug.print("Plant stats: {t}:{t}:{t} {{water: {d}, ph: {d}, sun: {d}}}\n", .{
+            p.crop_type,
+            p.growth_stage,
+            p.state,
             p.stats.water,
             p.stats.ph,
             p.stats.sun,
@@ -462,6 +482,9 @@ const App = struct {
     }
 
     pub fn pushPlantList(app: *App, sse: *datastar.SSE) !void {
+        app.mutex.lock();
+        defer app.mutex.unlock();
+
         var w = sse.patchElementsWriter(.{});
         try w.print(
             \\<div id="plant-list" class="grid grid-cols-2 grid-rows-2 h-fit">
@@ -483,9 +506,13 @@ const App = struct {
         try w.writeAll(
             \\</div>
         );
+        try sse.flush();
     }
 
     pub fn pushCropCounts(app: *App, sse: *datastar.SSE) !void {
+        app.mutex.lock();
+        defer app.mutex.unlock();
+
         try sse.patchSignals(.{
             .carrots = app.crop_counts[0],
             .radishes = app.crop_counts[1],
@@ -495,6 +522,9 @@ const App = struct {
     }
 
     pub fn updatePlants(app: *App) !void {
+        app.mutex.lock();
+        defer app.mutex.unlock();
+
         var has_changes: bool = false;
         for (0..4) |i| {
             if (app.plants[i]) |*p| {
@@ -505,7 +535,7 @@ const App = struct {
             }
         }
         if (has_changes) {
-            try app.publish("plants");
+            try app.pubsub.publish(.{ .plants = {} }, .all);
         }
     }
 };
