@@ -107,13 +107,8 @@ pub fn Server(comptime Context: type) type {
 
             // wait around till the inital inode is available
             while (true) {
-                const file = std.Io.Dir.cwd().openFile(self.io, self_path, .{}) catch {
-                    try self.io.sleep(.fromSeconds(2), .real);
-                    continue;
-                };
-                defer file.close(self.io);
-                const stat = file.stat(self.io) catch {
-                    try self.io.sleep(.fromSeconds(2), .real);
+                const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
+                    std.debug.print("Path {s} cannot stat: {}\n", .{ self_path, err });
                     continue;
                 };
                 initial_inode = stat.inode;
@@ -124,14 +119,8 @@ pub fn Server(comptime Context: type) type {
             while (true) {
                 try self.io.sleep(.fromSeconds(2), .real);
 
-                const file = std.Io.Dir.cwd().openFile(self.io, self_path, .{}) catch |err| {
-                    std.debug.print("Path {s} cannot open: {}\n", .{ self_path, err });
-                    continue;
-                };
-                defer file.close(self.io);
-
-                const stat = file.stat(self.io) catch |err| {
-                    std.debug.print("Path {s} failed to stat(): {}\n", .{ self_path, err });
+                const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
+                    std.debug.print("Path {s} cannot stat: {}\n", .{ self_path, err });
                     continue;
                 };
 
