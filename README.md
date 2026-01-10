@@ -844,10 +844,16 @@ Have not attempted to do any performance tuning and optimisations at this stage.
 
 Doesnt make sense to do that until Io.Evented is fully baked, and 0.16.0 is at least released !!
 
-However, there is a benchmarking test jig in `bench/` that might be worth a look at.
+However, there is a trivial benchmarking test jig in `bench/` that might be worth a look at.
 
 Unexpectedly - the basic std.http web server is showing really good numbers already, and is 
-pretty much on a par with `http.zig` ... which is a great start.
+pretty much on a par with both `http.zig` and `Rust / Axum + Tokio`... which is a great start.
+
+... and about 2x the performance of Go on the same large SSE streams test, and about 5x the performance of Bun
+on the same test.
+
+As always - Treat bench numbers with a pinch of salt. Only proves that its roughly ballpark
+of where it should be.
 
 # Adapting this SDK to other non-stdlib HTTP libraries
 
