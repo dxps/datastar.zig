@@ -12,7 +12,7 @@ Versions :
 - Datastar 1.0.0-RC7
 - Zig 0.16-dev
 
-NOTE - Zig 0.16-dev has breaking changes, and will for while. Keep this in mind if having fun
+NOTE - Zig 0.16-dev has frequent breaking changes, and will for while. Keep this in mind if having fun
 with being on the bleeding edge !! You have been warned !!
 
 Status 10-Jan-2026
