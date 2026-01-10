@@ -311,7 +311,7 @@ server.setContext(ctx)
 
 // create a server given an address
 server.init(io, allocator, address, port) !Server
-// create a server listening on all interfaces with IPv6
+// create a server listening on all interfaces with both IPv4 and IPv6
 server.initIp6(io, allocator, port) !Server
 // server instance cleanup
 server.deinit()
