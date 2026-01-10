@@ -55,7 +55,7 @@ To build an application using this SDK
 1) Add datastar.zig as a dependency in your `build.zig.zon`:
 
 ```bash
-zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig"
+zig fetch --save="datastar" "git+https://github.com/zigster64/datastar.zig"
 ```
 
 2) In your `build.zig`, add the `datastar` module as a dependency you your program:
