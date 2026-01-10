@@ -811,7 +811,7 @@ The server detects this, and sends a `window.location.reload()` to the browser.
 To compliment the browser hotreload, the Zig Datastar SDK provides a utility function you can add 
 to your server code, to automatically reload the server executable whenever it is recompiled.
 
-You can do achieve this by adding this code to your server during startup :
+You can achieve this by adding this code to your server during startup :
 
 ```zig
     var server = try HTTPServer.initIp6(io, allocator, PORT);
