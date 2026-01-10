@@ -141,7 +141,6 @@ fn sseEndpoint(http: *HTTPRequest) !void {
     // Update just the id='hello' element in the DOM
     try sse.patchElements("<div id='hello'>Hello World</div>");
 
-
     try sse.patchSignals(.{.foo = 42, .bar = "Datastar Rocks"});
     try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id});
 }
@@ -740,26 +739,19 @@ Sometimes that is not practical, or sometimes your app has no persistent SSE con
 If you have a look in `01_basic.zig` - the code for example_1 ... we dont have any persistent SSE connection
 to do this, so this app adds an endpoint `/hotreload/:id`
 
-When the index page is first requested, it will 
+When the app is started, it will store the current timestamp as the unique "Deployment ID", which
+then hard coded into `data-init="@post('/hotreload/DEPLOYMENT_ID')"` in `01_index.html`.
 
-```zig
-// add this route to your application
-// you can use whatever name for the endpoint you want, just connect it to the 
-// provided handler, like so :
-  r.post("/hotreload", datastar.hotreload); 
-```
+This `POST /hotreload/:id` endpoint is a long lived SSE connection.
 
-Then add this HTML snippet at the end of your initial index.html (or whatever doc you first load)
-```html
-   Create a long lived SSE connection that will detect refreshes on an outdated server 
-   instance, and force the browser to reload
-  <div data-init="@post('/hotreload', {retryMaxCount: 1000,retryInterval:20, retryMaxWaitMs:200})"></div>
+So when the server stops and starts (due to a re-deployment) the browser will automatically try to
+reconnect the dropped SSE connection, but pass the old DEPLOYMENT_ID.
 
-  Same, but with a full debug of signals if you like
-  <pre data-init="@post('/hotreload', {retryMaxCount: 1000,retryInterval:20, retryMaxWaitMs:200})" data-json-signals></pre>
-```
+The server detects this, and sends a `window.location.reload()` to the browser.
 
-To compliment that, the Zig Datastar SDK provides another utility function you can add 
+* Restart Server on Re-Compile *
+
+To compliment the browser hotreload, the Zig Datastar SDK provides a utility function you can add 
 to your server code, to automatically reload the server executable whenever it is recompiled.
 
 You can do achieve this by adding this code to your server during startup :
@@ -773,8 +765,8 @@ You can do achieve this by adding this code to your server during startup :
     ... add other routes here
 
     // HOT Reloader setup
-    r.post("/hotreload", datastar.hotreload); // Turn on the Hotreloader
-    try server.rebooter(); // Tells the server to reboot on recompile
+    r.post("/hotreload/:id", hotreloadHandler); // Turn on the Hotreloader
+    try server.rebooter(init.minimal.Args); // Tells the server to reboot on recompile
 
     std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
     try server.run();
