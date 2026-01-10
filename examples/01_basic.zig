@@ -104,7 +104,23 @@ fn patchElements(http: *HTTPRequest) !void {
     var t1 = try std.time.Timer.start();
     defer std.debug.print("patchElements elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
 
-    var sse = try http.NewSSE();
+    // Apply extra headers to the HTTPRequest before the response is sent
+    http.extra_headers = &.{
+        .{ .name = "X-More-Headers", .value = "Top level http extra headers" },
+        .{ .name = "X-Even-More-Headers", .value = "Top level http more headers" },
+    };
+
+    // Append additional headers to a HTTPRequest before the response is sent
+    http.extra_headers = try http.mergeHeaders(&.{
+        .{ .name = "X-Appended-Headers", .value = "These were appended to the top level" },
+        .{ .name = "X-Even-More-Appended-eaders", .value = "More appended to the top level" },
+    });
+
+    // Define extra headers here when creating the SSE response
+    var sse = try http.NewSSEOpt(.{ .extra_headers = &.{
+        .{ .name = "X-SSE-More-Headers", .value = "Patch Elements Example" },
+        .{ .name = "X-SSE-Even-More-Headers", .value = "All the Headers" },
+    } });
     defer sse.close();
 
     try sse.patchElementsFmt(

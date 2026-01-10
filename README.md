@@ -26,12 +26,13 @@ Who is this repo for ?
 
 - Anyone interested in using Datastar. https://data-star.dev.
 
-Datastar allows you to build interactive Web UIs, driven from the backend server, using
-declarative HTML. It is particularly good for doing real time push updates, event sourcing, and
+Datastar allows you to build interactive Web UIs, driven from the backend server, using only
+declarative HTML on the frontend, and streaming events from the backend.
+
+It is particularly good for doing real time push updates, event sourcing, and
 multi-player or collaborative applications.
 
-See the end of this document for more resources if you want to know more 
-about Datastar.
+See the end of this document for more resources if you want to know more about Datastar in detail.
 
 Datastar uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
 SDK functions to write the same app in Go, Clojure, C#, PHP, Python, Bun, Ruby, Rust, Lisp, Racket, Java, etc. 
@@ -40,7 +41,7 @@ This project adds Zig 0.16-dev to that list of supported SDK languages.
 
 _Why consider the Zig version then ? Who is that for ?_
 
-- Existing Zig programmers who want to try working with Web+Datastar under 0.16
+- Existing Zig programmers who want to try working with Web+Datastar under 0.16-dev
 - Datastar app builders who want to experiment with performance, and dabble in new backend languages
 
 Consider Zig if every microsecond counts, or you want small memory footprints.
@@ -54,7 +55,7 @@ To build an application using this SDK
 1) Add datastar.zig as a dependency in your `build.zig.zon`:
 
 ```bash
-zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig#master"
+zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig"
 ```
 
 2) In your `build.zig`, add the `datastar` module as a dependency you your program:
@@ -81,21 +82,18 @@ with Datastar specific SSE events.
 
 ```zig
 
+const std = @import("std");
+const datastar = @import("datastar");
+const HTTPServer = datastar.HTTPServer;
+const HTTPRequest = datastar.HTTPRequest;
+
 const ADDRESS = "0.0.0.0"; // all IP addresses
 const PORT = 8080; 
 
-pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
+    const io = init.io;
 
-    // Evented isnt really working yet, so stick with Threaded IO for now
-    // Once Evented is functional, its just a 1 line change here to swap
-    // from heavy threads to coroutines
-    var threaded: Io.Threaded = .init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    // Create a server listening for new HTTP connections
     var server = try HTTPServer.init(io, allocator, ADDRESS, PORT);
     defer server.deinit();
 
@@ -109,7 +107,7 @@ pub fn main() !void {
     try server.run();
 }
 
-// Handler code
+// Index page handler code
 fn index(http: *HTTPRequest) !void {
     // Note
     // - Include the Datastar bundle (or you can host your own)
@@ -126,6 +124,8 @@ fn index(http: *HTTPRequest) !void {
 
         \\<body data-init="/sse/zig">
         \\  <div id="hello">Loading ...</div>
+        \\  <div>Foo <span data-text:foo></span></div>
+        \\  <div>Bar <input data-bind:bar /></div>
         \\  <pre data-json-signals></pre>
         \\</body>
     );
@@ -135,14 +135,19 @@ fn index(http: *HTTPRequest) !void {
 fn sseEndpoint(http: *HTTPRequest) !void {
     const id = http.params.get("id") orelse return error.NoID;
 
+    // turn the endpoint into an SSE stream
     var sse = try http.NewSSE();
     defer sse.close();
+
+    // Now we can send multiple actions over the SSE stream
 
     // Update just the id='hello' element in the DOM
     try sse.patchElements("<div id='hello'>Hello World</div>");
 
-
+    // send a batch of signals for reactive DOM updates
     try sse.patchSignals(.{.foo = 42, .bar = "Datastar Rocks"});
+
+    // invoke scripts directly from the backend
     try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id});
 }
 ```
@@ -182,6 +187,11 @@ Then open your browser to http://localhost:8081
 This will bring up a kitchen sink app that shows each of the SDK functions in use in the browser, with a 
 section that displays the code to use on your backend to drive the page you are looking at.
 
+Suggest that you use the Browser DevTools to have a look at whats happening over the wire in each case.
+
+For the SSE streams, you can see that the request contains a stream of small payloads that contain 
+an event header, some params, followed by multiple lines of data.
+
 ![Screenshot of example_1](./docs/images/example_1a.png)
 
 ![Show Code example](./docs/images/show_code.png)
@@ -216,6 +226,11 @@ Use a different machine, or browser to simulate a new session.
 Note that the bids update in realtime across all clients, and just the preferences changes are sticky
 across all clients belonging to the same session.
 
+When the backend generates an update for each connected client, the output is customized by the backend
+to suit the session preferences.
+
+There is no logic being applied on the frontend in this example - its all driven from the backend.
+
 ![Screenshot of example_3](./docs/images/example_3.png)
 
 ---
@@ -242,20 +257,6 @@ The source code for the `validation-test` program is in the file `tests/validati
 Current version passes all tests.
 
 
-# Example Apps
-
-When you run `zig build` it will compile several apps into `./zig-out/bin/` to demonstrate using different parts 
-of the api
-
-- example_1  Using the Datastar API using basic SDK handlers
-- example_2  An example multi-user auction site for cats with realtime updates using pub/sub
-- example_3  Same cat auction as above, but with per-user preferences managed by the backend
-- example_4  (TODO) - a betting app simulator with realtime updates
-- example_5  shows an example multi-player Gardening Simulator using pub/sub
-- example_6  (TODO) - a multi-tenant TicTacToe game, with lobby, and anon viewing
-
-
-
 # Functions
 
 ## Cheatsheet of all Datastar SDK functions
@@ -280,7 +281,6 @@ defer sse.flush()
 // then you might want to send keepalive pings every minute or
 // so to ensure that the connection is tracked.
 // Call this to send a "keepalive" SSE event
-// that includes the total seconds that this connection has been alive
 sse.keepalive()
 
 // patch elements function variants
@@ -302,23 +302,24 @@ sse.executeScriptWriter(script_options) *std.Io.Writer
 
 ```zig
 // Generate a Server type that has no global context
+// handler signatures are handler(HTTPRequest)
 Server(void)
-... handler signatures are handler(HTTPRequest)
+
 // Generate a Server type that takes a type as a global app context
+// handler signatures are handler(Context, HTTPRequest)
 Server(T)
 server.setContext(ctx)
-... handler signatures are handler(Context, HTTPRequest)
 
 // create a server given an address
 server.init(io, allocator, address, port) !Server
-// create a server listening on all interfaces with IPv6
+// create a server listening on all interfaces with both IPv4 and IPv6
 server.initIp6(io, allocator, port) !Server
 // server instance cleanup
 server.deinit()
 // run the server
 server.run()
 // tell the whole app to reload and reboot whenever the program is re-compiled
-server.rebooter()
+server.rebooter(args)
 ```
 
 The built in HTTPServer provides a simple fast router 
@@ -339,10 +340,11 @@ r.delete(path, handler)
 r.add(method, path, handler)
 
 // Path Parameters example
-r.get("/users/:id", userHandler)
+r.get("/users/:id/:action", userHandler)
 
 fn userHandler(app: *App, http *HTTPRequest) !void {
     const id = http.params.get("id");
+    const action = http.params.get("action");
     ...
 }
 
@@ -373,6 +375,8 @@ http.htmlFmt(format, args) !void // print formatted output data as text/html
 http.json(data) !void            // convert data to JSON and output as application/json
 http.query() ![]const u8         // get the query string for this request 
 http.readSignals(T) !T           // read the signals from the request into struct of given type
+http.setCookie(name, value)      // set a cookie with the response
+http.getCookie(name)             // get a cookie from the requesnt
 
 // Route Parameters 
 http.params.get(name) ?[]const u8  // get the value of named parameter :name
@@ -422,6 +426,7 @@ Finally, there is a NewSSE variant that takes a set of options, for special case
     const SSEOptions = struct {
         buffer_size: usize = 16 * 1024, // internal buffer size for batched mode
         sync: bool = false,
+        extra_headers: ?[]const std.http.Header = null,
     };
 ```
 
@@ -635,6 +640,45 @@ fn executeScript(req: *httpz.Request, res: *httpz.Response) !void {
 }
 ```
 
+# Adding Response Headers
+
+There are a couple of ways you can send additional headers with your responses.
+
+See this example in `examples/01_basic.zig`
+
+```zig
+fn patchElements(http: *HTTPRequest) !void {
+    var t1 = try std.time.Timer.start();
+    defer std.debug.print("patchElements elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
+
+    // Apply extra headers to the HTTPRequest before the response is sent
+    http.extra_headers = &.{
+        .{ .name = "X-More-Headers", .value = "Top level http extra headers" },
+        .{ .name = "X-Even-More-Headers", .value = "Top level http more headers" },
+    };
+
+    // Append additional headers to a HTTPRequest before the response is sent
+    http.extra_headers = try http.mergeHeaders(&.{
+        .{ .name = "X-Appended-Headers", .value = "These were appended to the top level" },
+        .{ .name = "X-Even-More-Appended-eaders", .value = "More appended to the top level" },
+    });
+
+    // Define extra headers here when creating the SSE response
+    var sse = try http.NewSSEOpt(.{ .extra_headers = &.{
+        .{ .name = "X-SSE-More-Headers", .value = "Patch Elements Example" },
+        .{ .name = "X-SSE-Even-More-Headers", .value = "All the Headers" },
+    } });
+    defer sse.close();
+
+    try sse.patchElementsFmt(
+        \\<p id="mf-patch">This is update number {d}</p>
+    ,
+        .{getCountAndIncrement()},
+        .{},
+    );
+}
+
+```
 # Advanced SSE Topics
 
 ## Batched Writes vs Synchronous Writes 
@@ -740,26 +784,19 @@ Sometimes that is not practical, or sometimes your app has no persistent SSE con
 If you have a look in `01_basic.zig` - the code for example_1 ... we dont have any persistent SSE connection
 to do this, so this app adds an endpoint `/hotreload/:id`
 
-When the index page is first requested, it will 
+When the app is started, it will store the current timestamp as the unique "Deployment ID", which
+then hard coded into `data-init="@post('/hotreload/DEPLOYMENT_ID')"` in `01_index.html`.
 
-```zig
-// add this route to your application
-// you can use whatever name for the endpoint you want, just connect it to the 
-// provided handler, like so :
-  r.post("/hotreload", datastar.hotreload); 
-```
+This `POST /hotreload/:id` endpoint is a long lived SSE connection.
 
-Then add this HTML snippet at the end of your initial index.html (or whatever doc you first load)
-```html
-   Create a long lived SSE connection that will detect refreshes on an outdated server 
-   instance, and force the browser to reload
-  <div data-init="@post('/hotreload', {retryMaxCount: 1000,retryInterval:20, retryMaxWaitMs:200})"></div>
+So when the server stops and starts (due to a re-deployment) the browser will automatically try to
+reconnect the dropped SSE connection, but pass the old DEPLOYMENT_ID.
 
-  Same, but with a full debug of signals if you like
-  <pre data-init="@post('/hotreload', {retryMaxCount: 1000,retryInterval:20, retryMaxWaitMs:200})" data-json-signals></pre>
-```
+The server detects this, and sends a `window.location.reload()` to the browser.
 
-To compliment that, the Zig Datastar SDK provides another utility function you can add 
+* Restart Server on Re-Compile *
+
+To compliment the browser hotreload, the Zig Datastar SDK provides a utility function you can add 
 to your server code, to automatically reload the server executable whenever it is recompiled.
 
 You can do achieve this by adding this code to your server during startup :
@@ -773,8 +810,8 @@ You can do achieve this by adding this code to your server during startup :
     ... add other routes here
 
     // HOT Reloader setup
-    r.post("/hotreload", datastar.hotreload); // Turn on the Hotreloader
-    try server.rebooter(); // Tells the server to reboot on recompile
+    r.post("/hotreload/:id", hotreloadHandler); // Turn on the Hotreloader
+    try server.rebooter(init.minimal.Args); // Tells the server to reboot on recompile
 
     std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
     try server.run();
@@ -826,7 +863,7 @@ pub fn NewSSESync(http: *HTTPRequest) !SSE
 /// Return a new SSE object with custom options
 pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE
 
-/// use this to construct extra_headers when creating any response
+/// you can use this to construct extra_headers when creating any response
 /// it will pull in self.extra_headers, and merge them with the new set
 /// to provide a complete set for the actual request
 /// See http.setCookie() for an example where this is needed
@@ -857,30 +894,20 @@ pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8
 
 # More Info on Datastar
 
-If you are still curious about Datastar, and wondering if its right for your app, here are some more resources
-to peruse. 
+If you like the idea of using The Web as an application platform, but feel that the current directions in WebDev have 
+somehow lost the plot, then you might be the target audience for Datastar.
 
-The following videos will give you a really good idea if Datastar is for you or not.
+The following videos will give you a really good idea if Datastar is for you or not :
 
-Short Overview
+[![Why We’re Building the Front End Wrong](https://img.youtube.com/vi/FtAuSAOMNtM/0.jpg)](https://www.youtube.com/watch?v=FtAuSAOMNtM)
+
+
+Short Independent Overview
 
 [![Episode 1 - Datastar | Datastar Series](https://img.youtube.com/vi/I8QLWWPGT-c/0.jpg)](https://youtu.be/I8QLWWPGT-c)
 
 [![Episode 2 - Rockets Eye Overview | Datastar Series](https://img.youtube.com/vi/zQAz7fV95OU/0.jpg)](https://youtu.be/zQAz7fV95OU)
 
-In-Depth dive from the creator of Datastar
-
-[![Why We’re Building the Front End Wrong](https://img.youtube.com/vi/FtAuSAOMNtM/0.jpg)](https://www.youtube.com/watch?v=FtAuSAOMNtM)
-
-Other recommended viewing
-
-[![Datastar Hypermedia Framework - combining HTMX + Alpine.js functionality!](https://img.youtube.com/vi/u4_rNG--QMc/0.jpg)](https://youtu.be/u4_rNG--QMc)
-
-[![Real-time Hypermedia - Delaney Gillilan](https://img.youtube.com/vi/0K71AyAF6E4/0.jpg)](https://youtu.be/0K71AyAF6E4)
-
-[![Intro to Datastar (and Craft CMS)](https://img.youtube.com/vi/aVjU1st-52g/0.jpg)](https://www.youtube.com/live/aVjU1st-52g)
-
-[![What Datastar is Not, with JLarky](https://img.youtube.com/vi/p4X02rEPkJY/0.jpg)](https://youtu.be/p4X02rEPkJY)
 
 Datastar Discord
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/YfFn7pKx)

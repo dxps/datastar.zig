@@ -297,19 +297,19 @@ pub fn Router(comptime Context: type) type {
 
 const TestApp = struct { data: i32 };
 
-fn testAppHandler(app: *TestApp, _: HTTPRequest) !void {
+fn testAppHandler(app: *TestApp, _: *HTTPRequest) !void {
     std.debug.print("test *App handler data:{d}\n", .{app.data});
 }
 
-fn testVoidHandler(_: HTTPRequest) !void {
+fn testVoidHandler(_: *HTTPRequest) !void {
     std.debug.print("test void handler\n", .{});
 }
 
-fn testGetHandler(app: *TestApp, _: HTTPRequest) !void {
+fn testGetHandler(app: *TestApp, _: *HTTPRequest) !void {
     std.debug.print("test get handler data:{d}\n", .{app.data});
 }
 
-fn testPostHandler(app: *TestApp, _: HTTPRequest) !void {
+fn testPostHandler(app: *TestApp, _: *HTTPRequest) !void {
     std.debug.print("test post handler data:{d}\n", .{app.data});
 }
 
@@ -419,7 +419,7 @@ test "urlDecode handles percent encoding" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const decoded = try HTTPRequest.urlDecode(arena.allocator(), "hello%20world");
+    const decoded = try datastar.urlDecode(arena.allocator(), "hello%20world");
     try std.testing.expectEqualStrings("hello world", decoded);
 }
 
@@ -427,7 +427,7 @@ test "urlDecode handles plus signs" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const decoded = try HTTPRequest.urlDecode(arena.allocator(), "hello+world");
+    const decoded = try datastar.urlDecode(arena.allocator(), "hello+world");
     try std.testing.expectEqualStrings("hello world", decoded);
 }
 
@@ -435,7 +435,7 @@ test "urlDecode handles mixed encoding" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
 
-    const decoded = try HTTPRequest.urlDecode(arena.allocator(), "foo+bar%3Dbaz");
+    const decoded = try datastar.urlDecode(arena.allocator(), "foo+bar%3Dbaz");
     try std.testing.expectEqualStrings("foo bar=baz", decoded);
 }
 

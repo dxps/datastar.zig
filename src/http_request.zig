@@ -44,12 +44,17 @@ pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
     // that means the handler needs to stay alive for as long we expect to keep
     // using this bodyWriter. This has implications for pub/sub
     const res = try http.arena.create(std.http.BodyWriter);
+    var headers: []const std.http.Header = try http.mergeHeaders(&.{
+        .{ .name = "content-type", .value = "text/event-stream; charset=UTF-8" },
+        .{ .name = "cache-control", .value = "no-cache" },
+    });
+    if (opt.extra_headers) |extras| {
+        headers = try http.mergeHeaders(extras);
+    }
+
     res.* = try http.req.respondStreaming(
         buf,
-        .{ .respond_options = .{ .extra_headers = &.{
-            .{ .name = "content-type", .value = "text/event-stream; charset=UTF-8" },
-            .{ .name = "cache-control", .value = "no-cache" },
-        } } },
+        .{ .respond_options = .{ .extra_headers = headers } },
     );
     const allocating_writer = blk: {
         if (opt.buffer_size == 0) break :blk Io.Writer.Allocating.init(http.arena);
