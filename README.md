@@ -721,7 +721,7 @@ system that exploits the fact that http.zig allows you to detach sockets from ha
 In Zig 0.16 - The recommended approach here will be to use the Evented IO to create long running coroutines 
 for those handlers that want to subscribe to topics. For now, we are using Io.Threaded in the examples until Io.Evented 
 is fully baked. Io.Threaded isnt a huge overhead, since each thread is put to sleep whilst its waiting for the next message, so its
-just the memory overhead. You can easily tune the stack size used for threads down to some maximum to keep that nicely under control.
+just the memory overhead. Zig allows you to easily tune the stack size used for threads down to some maximum to keep that nicely under control.
 
 For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
 
