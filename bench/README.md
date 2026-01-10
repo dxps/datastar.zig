@@ -51,8 +51,10 @@ is in use, so will route further requests through a new connection. With straigh
 HTTP/1.1 keepalive protocol to stream additional requests onto the existing network connection. So there is definitely some extra network overhead there. 
 Exactly how much, I dont know.
 
-I dont if `wrk` conforms to that, or not either.
+I dont know if `wrk` conforms to that, or not either.
 
 Would have to do some serious instrumenting to find out where the time is spent, but its probably a combination of all of the above.
 
 The fact that its consistent across the board will different languages and SDKs suggests the numbers are pretty correct though.
+
+Will revisit this with non-trivial benchmarking after Zig 0.16.0 is out, and preferably when Io.Evented is fully ironed out.
