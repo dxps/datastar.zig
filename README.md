@@ -15,8 +15,8 @@ Versions :
 NOTE - Zig 0.16-dev has breaking changes, and will for while. Keep this in mind if having fun
 with being on the bleeding edge !! You have been warned !!
 
-6-Jan-2026
-`.minimum_zig_version = "0.16.0-dev.1912+0cbaaa5eb"`
+Status 10-Jan-2026
+- 0.16.0-dev.2040+c475f1fcd ... now includes the "Juicy Main" changes
 
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 
