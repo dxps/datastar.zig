@@ -838,6 +838,17 @@ Of course, if you run the zig compiler in --watch mode, then everytime you save,
 recompile, which triggers a reload of the server, which triggers a frontend hot reload as 
 well.
 
+# Benchmarking
+
+Have not attempted to do any performance tuning and optimisations at this stage.
+
+Doesnt make sense to do that until Io.Evented is fully baked, and 0.16.0 is at least released !!
+
+However, there is a benchmarking test jig in `bench/` that might be worth a look at.
+
+Unexpectedly - the basic std.http web server is showing really good numbers already, and is 
+pretty much on a par with `http.zig` ... which is a great start.
+
 # Adapting this SDK to other non-stdlib HTTP libraries
 
 Should be relatively straightforward to do.
