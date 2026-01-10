@@ -721,9 +721,7 @@ is fully baked.
 
 For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
 
-The example apps in this SDK that require PubSub, use this embedded message broker https://github.com/zigster64/pubsub.zig
-
-.. which was custom built specifically for these Datastar SSE runners.
+The example apps in this SDK that require PubSub, use this embedded message broker https://github.com/zigster64/pubsub.zig .. which was custom built specifically for these Datastar SSE runners.
 
 You dont _have to_ use this message broker, but its bundled into this SDK for convenience to get you started.
 
