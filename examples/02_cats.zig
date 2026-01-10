@@ -35,7 +35,7 @@ pub fn main(init: std.process.Init) !void {
 
     // run the server
     std.debug.print("listening http://localhost:{d}/\n", .{PORT});
-    try server.rebooter();
+    try server.rebooter(init.minimal.args);
     try server.run();
 }
 

@@ -53,7 +53,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Reboot on recompile, and hot reload the client
     r.post("/hotreload/:id", hotreload);
-    try server.rebooter();
+    try server.rebooter(init.minimal.args);
 
     std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
     try server.run();
