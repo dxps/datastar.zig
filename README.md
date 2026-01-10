@@ -728,6 +728,9 @@ The example apps in this SDK that require PubSub, use this embedded message brok
 You dont _have to_ use this message broker, but its bundled into this SDK for convenience to get you started.
 
 Swap in your own PubSub / Mailbox / Message Queue engine as you need, and follow the same basic logic 
+- Create an SSE response in sync mode, with `NewSSESync()`
+- `defer sse.close()` to close the connection when complete
+- Send the first payload now, before the loop
 - In the handler, connect to whatever message broker you are using
 - Subscribe to various topics
 - Loop forever getting messasges
