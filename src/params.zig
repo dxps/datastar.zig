@@ -17,7 +17,7 @@ pub fn get(self: Params, name: []const u8) ?[]const u8 {
 pub fn getInt(self: Params, T: type, name: []const u8) ?T {
     for (0..self.count) |i| {
         if (std.mem.eql(u8, self.names[i], name)) {
-            return std.fmt.parseInt(T, self.values[i], 10) catch 0;
+            return std.fmt.parseInt(T, self.values[i], 10) catch null;
         }
     }
     return null;
