@@ -152,7 +152,7 @@ pub fn readSignals(self: HTTPRequest, comptime T: type) !T {
             while (it.next()) |pair| {
                 if (std.mem.startsWith(u8, pair, "datastar=")) {
                     const encoded_val = pair["datastar=".len..];
-                    const decoded = try urlDecode(arena, encoded_val);
+                    const decoded = try datastar.urlDecode(arena, encoded_val);
 
                     return std.json.parseFromSliceLeaky(
                         T,
@@ -180,26 +180,6 @@ pub fn readSignals(self: HTTPRequest, comptime T: type) !T {
             );
         },
     }
-}
-
-fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
-    var out = try allocator.alloc(u8, input.len);
-    var i: usize = 0;
-    var j: usize = 0;
-    while (i < input.len) {
-        if (input[i] == '%' and i + 2 < input.len) {
-            out[j] = std.fmt.parseInt(u8, input[i + 1 .. i + 3], 16) catch input[i];
-            i += 3;
-        } else if (input[i] == '+') {
-            out[j] = ' ';
-            i += 1;
-        } else {
-            out[j] = input[i];
-            i += 1;
-        }
-        j += 1;
-    }
-    return out[0..j];
 }
 
 /// set a cookie that will be included in the response header

@@ -272,13 +272,16 @@ var sse = http.NewSSE() !SSE
 var sse = http.NewSSESync() !SSE
 var sse = http.NewSSEOpt(sse_options) !SSE
 
-// when you are finished with this connection
-sse.close()
+// when you are finished with this connection - you will want to do ONE of these
+defer sse.close()
+defer sse.flush()
 
 // when you want to keep the connection alive for a long time 
-// then call this in your handler. It will continue until the 
-// browser closes the connection
-sse.keepalive(io, duration)
+// then you might want to send keepalive pings every minute or
+// so to ensure that the connection is tracked.
+// Call this to send a "keepalive" SSE event
+// that includes the total seconds that this connection has been alive
+sse.keepalive()
 
 // patch elements function variants
 sse.patchElements(elementsHTML, elements_options) !void

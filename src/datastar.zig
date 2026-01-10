@@ -470,6 +470,26 @@ pub const Message = struct {
     }
 };
 
+pub fn urlDecode(allocator: std.mem.Allocator, input: []const u8) ![]u8 {
+    var out = try allocator.alloc(u8, input.len);
+    var i: usize = 0;
+    var j: usize = 0;
+    while (i < input.len) {
+        if (input[i] == '%' and i + 2 < input.len) {
+            out[j] = std.fmt.parseInt(u8, input[i + 1 .. i + 3], 16) catch input[i];
+            i += 3;
+        } else if (input[i] == '+') {
+            out[j] = ' ';
+            i += 1;
+        } else {
+            out[j] = input[i];
+            i += 1;
+        }
+        j += 1;
+    }
+    return out[0..j];
+}
+
 test "PatchElementsOptions default values" {
     const opts = PatchElementsOptions{};
     try std.testing.expectEqual(PatchMode.outer, opts.mode);
