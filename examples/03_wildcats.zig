@@ -18,7 +18,7 @@ const MQSchema = union(enum) {
 // SSE and pub/sub to have realtime updates of bids on a Cat auction
 // with session based preferences
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.arena.allocator();
+    const allocator = init.gpa;
     const io = init.io;
 
     // Create the global app instance
@@ -287,8 +287,8 @@ const App = struct {
     }
 
     pub fn sortCats(app: *App, sort: SortType) void {
-        std.debug.print("sorting by {} with last sort {}\n", .{ sort, app.last_sort });
         if (app.last_sort == sort) return;
+        std.debug.print("sorting by {} with last sort {}\n", .{ sort, app.last_sort });
 
         switch (sort) {
             .id => std.sort.block(Cat, app.cats.items, {}, catSortID),

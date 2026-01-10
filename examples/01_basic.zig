@@ -25,7 +25,7 @@ const HTTPServer = datastar.Server(void);
 var hotreload_id: i64 = 0;
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.arena.allocator();
+    const allocator = init.gpa;
     const io = init.io;
 
     // set the unique ID of this server = timestamp in milliseconds

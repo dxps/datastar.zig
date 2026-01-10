@@ -91,7 +91,7 @@ const ADDRESS = "0.0.0.0"; // all IP addresses
 const PORT = 8080; 
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.arena.allocator();
+    const allocator = init.gpa;
     const io = init.io;
 
     var server = try HTTPServer(void).init(io, allocator, ADDRESS, PORT);

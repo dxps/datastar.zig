@@ -19,7 +19,7 @@ const MQSchema = union(enum) {
 
 // SSE and pub/sub to have realtime updates of updates to the garden
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.arena.allocator();
+    const allocator = init.gpa;
     const io = init.io;
 
     // create global app instance

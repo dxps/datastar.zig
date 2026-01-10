@@ -9,7 +9,7 @@ const HTTPRequest = datastar.HTTPRequest;
 
 // Run Datastar validation test suite backend in Zig
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.arena.allocator();
+    const allocator = init.gpa;
     const io = init.io;
 
     var server = try datastar.Server(void).init(io, allocator, "0.0.0.0", PORT);
