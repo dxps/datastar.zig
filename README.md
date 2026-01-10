@@ -796,7 +796,7 @@ Sometimes that is not practical, or sometimes your app has no persistent SSE con
 If you have a look in `01_basic.zig` - the code for example_1 ... we dont have any persistent SSE connection
 to do this, so this app adds an endpoint `/hotreload/:id`
 
-When the app is started, it will store the current timestamp as the unique "Deployment ID", which
+When the app is started, it will store the current timestamp as the unique "Deployment ID", which is
 then hard coded into `data-init="@post('/hotreload/DEPLOYMENT_ID')"` in `01_index.html`.
 
 This `POST /hotreload/:id` endpoint is a long lived SSE connection.
