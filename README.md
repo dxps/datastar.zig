@@ -84,7 +84,7 @@ with Datastar specific SSE events.
 
 const std = @import("std");
 const datastar = @import("datastar");
-const HTTPServer = datastar.HTTPServer;
+const HTTPServer = datastar.Server;
 const HTTPRequest = datastar.HTTPRequest;
 
 const ADDRESS = "0.0.0.0"; // all IP addresses
