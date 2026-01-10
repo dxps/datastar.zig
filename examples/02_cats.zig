@@ -10,14 +10,9 @@ const PORT = 8082;
 
 // This example demonstrates a simple auction site that uses
 // SSE and pub/sub to have realtime updates of bids on a Cat auction
-pub fn main() !void {
-    // Setup an allocator and io
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    const allocator = gpa.allocator();
-
-    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
-    defer threaded.deinit();
-    const io = threaded.io();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
+    const io = init.io;
 
     // Create the global app instance
     var app = try App.init(io, allocator);
