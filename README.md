@@ -122,9 +122,9 @@ fn index(http: *HTTPRequest) !void {
         \\  </script>
         \\</head>
 
-        \\<body data-init="/sse/zig">
+        \\<body data-init="@get('/sse/zig')">
         \\  <div id="hello">Loading ...</div>
-        \\  <div>Foo <span data-text:foo></span></div>
+        \\  <div>Foo <span data-text="$foo"></span></div>
         \\  <div>Bar <input data-bind:bar /></div>
         \\  <pre data-json-signals></pre>
         \\</body>
