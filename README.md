@@ -55,7 +55,7 @@ To build an application using this SDK
 1) Add datastar.zig as a dependency in your `build.zig.zon`:
 
 ```bash
-zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig#master"
+zig fetch --save="datastar" "git+https://github.com/zigstser64/datastar.zig"
 ```
 
 2) In your `build.zig`, add the `datastar` module as a dependency you your program:
@@ -92,7 +92,7 @@ const PORT = 8080;
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
-    const io = init.io; // defaults to Io.Threaded
+    const io = init.io;
 
     var server = try HTTPServer.init(io, allocator, ADDRESS, PORT);
     defer server.deinit();
@@ -107,7 +107,7 @@ pub fn main(init: std.process.Init) !void {
     try server.run();
 }
 
-// Handler code
+// Index page handler code
 fn index(http: *HTTPRequest) !void {
     // Note
     // - Include the Datastar bundle (or you can host your own)
@@ -187,6 +187,11 @@ Then open your browser to http://localhost:8081
 This will bring up a kitchen sink app that shows each of the SDK functions in use in the browser, with a 
 section that displays the code to use on your backend to drive the page you are looking at.
 
+Suggest that you use the Browser DevTools to have a look at whats happening over the wire in each case.
+
+For the SSE streams, you can see that the request contains a stream of small payloads that contain 
+an event header, some params, followed by multiple lines of data.
+
 ![Screenshot of example_1](./docs/images/example_1a.png)
 
 ![Show Code example](./docs/images/show_code.png)
@@ -221,6 +226,11 @@ Use a different machine, or browser to simulate a new session.
 Note that the bids update in realtime across all clients, and just the preferences changes are sticky
 across all clients belonging to the same session.
 
+When the backend generates an update for each connected client, the output is customized by the backend
+to suit the session preferences.
+
+There is no logic being applied on the frontend in this example - its all driven from the backend.
+
 ![Screenshot of example_3](./docs/images/example_3.png)
 
 ---
@@ -247,20 +257,6 @@ The source code for the `validation-test` program is in the file `tests/validati
 Current version passes all tests.
 
 
-# Example Apps
-
-When you run `zig build` it will compile several apps into `./zig-out/bin/` to demonstrate using different parts 
-of the api
-
-- example_1  Using the Datastar API using basic SDK handlers
-- example_2  An example multi-user auction site for cats with realtime updates using pub/sub
-- example_3  Same cat auction as above, but with per-user preferences managed by the backend
-- example_4  (TODO) - a betting app simulator with realtime updates
-- example_5  shows an example multi-player Gardening Simulator using pub/sub
-- example_6  (TODO) - a multi-tenant TicTacToe game, with lobby, and anon viewing
-
-
-
 # Functions
 
 ## Cheatsheet of all Datastar SDK functions
@@ -285,7 +281,6 @@ defer sse.flush()
 // then you might want to send keepalive pings every minute or
 // so to ensure that the connection is tracked.
 // Call this to send a "keepalive" SSE event
-// that includes the total seconds that this connection has been alive
 sse.keepalive()
 
 // patch elements function variants
@@ -307,12 +302,13 @@ sse.executeScriptWriter(script_options) *std.Io.Writer
 
 ```zig
 // Generate a Server type that has no global context
+// handler signatures are handler(HTTPRequest)
 Server(void)
-... handler signatures are handler(HTTPRequest)
+
 // Generate a Server type that takes a type as a global app context
+// handler signatures are handler(Context, HTTPRequest)
 Server(T)
 server.setContext(ctx)
-... handler signatures are handler(Context, HTTPRequest)
 
 // create a server given an address
 server.init(io, allocator, address, port) !Server
@@ -323,7 +319,7 @@ server.deinit()
 // run the server
 server.run()
 // tell the whole app to reload and reboot whenever the program is re-compiled
-server.rebooter()
+server.rebooter(args)
 ```
 
 The built in HTTPServer provides a simple fast router 
@@ -344,10 +340,11 @@ r.delete(path, handler)
 r.add(method, path, handler)
 
 // Path Parameters example
-r.get("/users/:id", userHandler)
+r.get("/users/:id/:action", userHandler)
 
 fn userHandler(app: *App, http *HTTPRequest) !void {
     const id = http.params.get("id");
+    const action = http.params.get("action");
     ...
 }
 
@@ -378,6 +375,8 @@ http.htmlFmt(format, args) !void // print formatted output data as text/html
 http.json(data) !void            // convert data to JSON and output as application/json
 http.query() ![]const u8         // get the query string for this request 
 http.readSignals(T) !T           // read the signals from the request into struct of given type
+http.setCookie(name, value)      // set a cookie with the response
+http.getCookie(name)             // get a cookie from the requesnt
 
 // Route Parameters 
 http.params.get(name) ?[]const u8  // get the value of named parameter :name
@@ -427,6 +426,7 @@ Finally, there is a NewSSE variant that takes a set of options, for special case
     const SSEOptions = struct {
         buffer_size: usize = 16 * 1024, // internal buffer size for batched mode
         sync: bool = false,
+        extra_headers: ?[]const std.http.Header = null,
     };
 ```
 
@@ -640,6 +640,45 @@ fn executeScript(req: *httpz.Request, res: *httpz.Response) !void {
 }
 ```
 
+# Adding Response Headers
+
+There are a couple of ways you can send additional headers with your responses.
+
+See this example in `examples/01_basic.zig`
+
+```zig
+fn patchElements(http: *HTTPRequest) !void {
+    var t1 = try std.time.Timer.start();
+    defer std.debug.print("patchElements elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
+
+    // Apply extra headers to the HTTPRequest before the response is sent
+    http.extra_headers = &.{
+        .{ .name = "X-More-Headers", .value = "Top level http extra headers" },
+        .{ .name = "X-Even-More-Headers", .value = "Top level http more headers" },
+    };
+
+    // Append additional headers to a HTTPRequest before the response is sent
+    http.extra_headers = try http.mergeHeaders(&.{
+        .{ .name = "X-Appended-Headers", .value = "These were appended to the top level" },
+        .{ .name = "X-Even-More-Appended-eaders", .value = "More appended to the top level" },
+    });
+
+    // Define extra headers here when creating the SSE response
+    var sse = try http.NewSSEOpt(.{ .extra_headers = &.{
+        .{ .name = "X-SSE-More-Headers", .value = "Patch Elements Example" },
+        .{ .name = "X-SSE-Even-More-Headers", .value = "All the Headers" },
+    } });
+    defer sse.close();
+
+    try sse.patchElementsFmt(
+        \\<p id="mf-patch">This is update number {d}</p>
+    ,
+        .{getCountAndIncrement()},
+        .{},
+    );
+}
+
+```
 # Advanced SSE Topics
 
 ## Batched Writes vs Synchronous Writes 
@@ -824,7 +863,7 @@ pub fn NewSSESync(http: *HTTPRequest) !SSE
 /// Return a new SSE object with custom options
 pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE
 
-/// use this to construct extra_headers when creating any response
+/// you can use this to construct extra_headers when creating any response
 /// it will pull in self.extra_headers, and merge them with the new set
 /// to provide a complete set for the actual request
 /// See http.setCookie() for an example where this is needed

@@ -78,6 +78,7 @@ pub fn executeScript(arena: Allocator, script: []const u8, opt: ExecuteScriptOpt
 pub const SSEOptions = struct {
     buffer_size: usize = DEFAULT_BUFFER_SIZE,
     sync: bool = false,
+    extra_headers: ?[]const std.http.Header = null,
 };
 
 pub const SSE = struct {
@@ -563,8 +564,7 @@ test "NameSpace enum values" {
 
 test "Message.init sets correct command and options for patchElements" {
     var buffer: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buffer);
-    var writer = fbs.writer().any();
+    var writer = std.Io.Writer.fixed(&buffer);
 
     var msg: Message = undefined;
     const opts = PatchElementsOptions{ .mode = .inner, .selector = "#test" };
@@ -577,8 +577,7 @@ test "Message.init sets correct command and options for patchElements" {
 
 test "Message.init sets correct command and options for patchSignals" {
     var buffer: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buffer);
-    var writer = fbs.writer().any();
+    var writer = std.Io.Writer.fixed(&buffer);
 
     var msg: Message = undefined;
     const opts = PatchSignalsOptions{ .only_if_missing = true };
@@ -590,8 +589,7 @@ test "Message.init sets correct command and options for patchSignals" {
 
 test "Message.init sets correct command and options for executeScript" {
     var buffer: [1024]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buffer);
-    var writer = fbs.writer().any();
+    var writer = std.Io.Writer.fixed(&buffer);
 
     var msg: Message = undefined;
     const opts = ExecuteScriptOptions{ .auto_remove = false };

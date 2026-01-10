@@ -25,6 +25,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    server_tests.root_module.addImport("pubsub", pubsub.module("pubsub"));
 
     const run_server_tests = b.addRunArtifact(server_tests);
 
@@ -36,6 +37,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    datastar_tests.root_module.addImport("pubsub", pubsub.module("pubsub"));
 
     const run_datastar_tests = b.addRunArtifact(datastar_tests);
 
