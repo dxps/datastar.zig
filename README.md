@@ -864,6 +864,12 @@ More complex Solution (For HTTP Framework Authors) :
 - Write a HTTPRequest compatible wrapper for your HTTP Framework. If you provide that, then any application code that works with the
   built-in HTTP Server from this package will also work with your adapted HTTP Framework, by swapping over the HTTPRequest implementation.
 
+Maybe future option :
+
+- Its probably more idiomatic Zig to implement HTTPRequest as an interface with a VTable.
+- But thats an extra layer of complexity that might be overkill.
+- Will wait an see if this is even an actual demand before committing to making that change.
+
 ![Datastar HTTPRequest Interface](docs/http_request.png)
 
 The HTTPRequest interface currently looks like this :  (is WIP, may change a little)
