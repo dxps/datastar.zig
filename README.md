@@ -94,7 +94,7 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.arena.allocator();
     const io = init.io;
 
-    var server = try HTTPServer.init(io, allocator, ADDRESS, PORT);
+    var server = try HTTPServer(void).init(io, allocator, ADDRESS, PORT);
     defer server.deinit();
 
     // Setup all the routes
@@ -131,7 +131,7 @@ fn index(http: *HTTPRequest) !void {
     );
 }
 
-// A simple SSE endpoint that generates a set of events over the stream 
+// A simple SSE endpoint that generates a set of events over the stream
 fn sseEndpoint(http: *HTTPRequest) !void {
     const id = http.params.get("id") orelse return error.NoID;
 
@@ -142,13 +142,13 @@ fn sseEndpoint(http: *HTTPRequest) !void {
     // Now we can send multiple actions over the SSE stream
 
     // Update just the id='hello' element in the DOM
-    try sse.patchElements("<div id='hello'>Hello World</div>");
+    try sse.patchElements("<div id='hello'>Hello World</div>", .{});
 
     // send a batch of signals for reactive DOM updates
-    try sse.patchSignals(.{.foo = 42, .bar = "Datastar Rocks"});
+    try sse.patchSignals(.{ .foo = 42, .bar = "Datastar Rocks" }, .{}, .{});
 
     // invoke scripts directly from the backend
-    try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id});
+    try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id}, .{});
 }
 ```
 
