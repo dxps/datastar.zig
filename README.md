@@ -712,6 +712,9 @@ See the SVG and MathML demo code in example_1 to see this in action.
 
 # Publish and Subscribe
 
+Publish and Subscribe is at the heart of reactive Multi-Player apps. We want to exploit the SSE streams to push updates to clients from
+the backend, and we need a message bus of sorts to track all the connected clients and what topics they are listening on.
+
 The older `datastar.http.zig` SDK for use with Zig 0.15.2 (here - https://github.com/zigster64/datastar.http.zig) has a built in pub/sub
 system that exploits the fact that http.zig allows you to detach sockets from handlers for later use.
 
