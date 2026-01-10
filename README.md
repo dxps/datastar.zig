@@ -716,7 +716,8 @@ The older `datastar.http.zig` SDK for use with Zig 0.15.2 (here - https://github
 system that exploits the fact that http.zig allows you to detach sockets from handlers for later use.
 
 In Zig 0.16 - The recommended approach here will be to use the Evented IO to create long running coroutines 
-for those handlers that want to subscribe to topics.
+for those handlers that want to subscribe to topics. For now, we are using Io.Threaded in the examples until Io.Evented 
+is fully baked.
 
 For publishing to topics in a production environment, then just connect in a message bus such as Redis, or NATS, or Postgres listen/notify and thats all thats needed.
 
