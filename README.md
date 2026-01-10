@@ -40,7 +40,7 @@ This project adds Zig 0.16-dev to that list of supported SDK languages.
 
 _Why consider the Zig version then ? Who is that for ?_
 
-- Existing Zig programmers who want to try Datastar
+- Existing Zig programmers who want to try working with Web+Datastar under 0.16
 - Datastar app builders who want to experiment with performance, and dabble in new backend languages
 
 Consider Zig if every microsecond counts, or you want small memory footprints.
