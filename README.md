@@ -712,7 +712,7 @@ See the SVG and MathML demo code in example_1 to see this in action.
 
 # Publish and Subscribe
 
-The `datastar.http.zig` SDK (here - https://github.com/zigster64/datastar.http.zig) has a built in pub/sub
+The older `datastar.http.zig` SDK for use with Zig 0.15.2 (here - https://github.com/zigster64/datastar.http.zig) has a built in pub/sub
 system that exploits the fact that http.zig allows you to detach sockets from handlers for later use.
 
 In Zig 0.16 - The recommended approach here will be to use the Evented IO to create long running coroutines 
