@@ -724,9 +724,15 @@ The example apps in this SDK that require PubSub, use this embedded message brok
 
 .. which was custom built specifically for these Datastar SSE runners.
 
-This message broker is optional, but it is already bundled in the SDK if you want to make use of it.
+You dont _have to_ use this message broker, but its bundled into this SDK for convenience to get you started.
 
-You can see this being used in `02_cats.zig` for example, to update bids on cat auction.
+Swap in your own PubSub / Mailbox / Message Queue engine as you need, and follow the same basic logic 
+- In the handler, connect to whatever message broker you are using
+- Subscribe to various topics
+- Loop forever getting messasges
+    - perform some action on the message
+
+You can see this being used in `02_cats.zig` for example, to update bids on the cat auctions.
 
 ```zig
 // Optional embedded PubSub broker is bundled in the SDK for easy access
