@@ -93,11 +93,11 @@ pub fn Server(comptime Context: type) type {
             }
         }
 
-        pub fn rebooter(self: *Self) !void {
-            _ = try self.io.concurrent(Self.watchLoop, .{self});
+        pub fn rebooter(self: *Self, args: std.process.Args) !void {
+            _ = try self.io.concurrent(Self.watchLoop, .{ self, args });
         }
 
-        fn watchLoop(self: *Self) !void {
+        fn watchLoop(self: *Self, args: std.process.Args) !void {
             const self_path = try std.process.executablePathAlloc(self.io, self.allocator);
             defer self.allocator.free(self_path);
             std.debug.print("exe path is {s}\n", .{self_path});
@@ -107,13 +107,8 @@ pub fn Server(comptime Context: type) type {
 
             // wait around till the inital inode is available
             while (true) {
-                const file = std.Io.Dir.cwd().openFile(self.io, self_path, .{}) catch {
-                    try self.io.sleep(.fromSeconds(2), .real);
-                    continue;
-                };
-                defer file.close(self.io);
-                const stat = file.stat(self.io) catch {
-                    try self.io.sleep(.fromSeconds(2), .real);
+                const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
+                    std.debug.print("Path {s} cannot stat: {}\n", .{ self_path, err });
                     continue;
                 };
                 initial_inode = stat.inode;
@@ -124,12 +119,8 @@ pub fn Server(comptime Context: type) type {
             while (true) {
                 try self.io.sleep(.fromSeconds(2), .real);
 
-                const file = std.Io.Dir.cwd().openFile(self.io, self_path, .{}) catch |err| {
-                    std.debug.print("Path {s} cannot open: {}\n", .{ self_path, err });
-                    continue;
-                };
-                const stat = file.stat(self.io) catch |err| {
-                    std.debug.print("Path {s} failed to stat(): {}\n", .{ self_path, err });
+                const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
+                    std.debug.print("Path {s} cannot stat: {}\n", .{ self_path, err });
                     continue;
                 };
 
@@ -139,16 +130,13 @@ pub fn Server(comptime Context: type) type {
                 if (inode_changed or mtime_changed) {
                     std.debug.print("Binary Changed - Reboot ♻️\n", .{});
 
-                    const args = try std.process.argsAlloc(self.allocator);
-
-                    var exec_args: std.ArrayList([]const u8) = .empty;
-                    try exec_args.append(self.allocator, self_path);
-
-                    for (args[1..]) |arg| {
-                        try exec_args.append(self.allocator, arg);
+                    const argv = try self.allocator.alloc([]const u8, args.vector.len);
+                    defer self.allocator.free(argv);
+                    for (args.vector, 0..) |arg, i| {
+                        argv[i] = std.mem.span(arg);
                     }
 
-                    return std.process.execv(self.allocator, exec_args.items);
+                    return std.process.replace(self.io, .{ .argv = argv });
                 }
             }
         }

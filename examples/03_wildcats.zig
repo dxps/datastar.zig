@@ -17,13 +17,9 @@ const MQSchema = union(enum) {
 // This example demonstrates a simple auction site that uses
 // SSE and pub/sub to have realtime updates of bids on a Cat auction
 // with session based preferences
-pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    const allocator = gpa.allocator();
-
-    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
-    defer threaded.deinit();
-    const io = threaded.io();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
+    const io = init.io;
 
     // Create the global app instance
     var app = try App.init(io, allocator);
@@ -47,7 +43,7 @@ pub fn main() !void {
 
     // run the server
     std.debug.print("listening http://localhost:{d}/\n", .{PORT});
-    try server.rebooter();
+    try server.rebooter(init.minimal.args);
     try server.run();
 }
 

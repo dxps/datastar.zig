@@ -24,13 +24,9 @@ const HTTPServer = datastar.Server(void);
 
 var hotreload_id: i64 = 0;
 
-pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    const allocator = gpa.allocator();
-
-    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
-    defer threaded.deinit();
-    const io = threaded.io();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
+    const io = init.io;
 
     // set the unique ID of this server = timestamp in milliseconds
     hotreload_id = (try Io.Clock.real.now(io)).toMilliseconds();
@@ -57,7 +53,7 @@ pub fn main() !void {
 
     // Reboot on recompile, and hot reload the client
     r.post("/hotreload/:id", hotreload);
-    try server.rebooter();
+    try server.rebooter(init.minimal.args);
 
     std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
     try server.run();

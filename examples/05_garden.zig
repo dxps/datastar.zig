@@ -18,15 +18,9 @@ const MQSchema = union(enum) {
 };
 
 // SSE and pub/sub to have realtime updates of updates to the garden
-pub fn main() !void {
-    // create allocator
-    var gpa: std.heap.DebugAllocator(.{}) = .init;
-    const allocator = gpa.allocator();
-
-    // create the Io - use threaded for now
-    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
-    defer threaded.deinit();
-    const io = threaded.io();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
+    const io = init.io;
 
     // create global app instance
     var app = try App.init(io, allocator);
@@ -50,7 +44,7 @@ pub fn main() !void {
     }
 
     std.debug.print("listening http://localhost:{d}/\n", .{PORT});
-    try server.rebooter();
+    try server.rebooter(init.minimal.args);
     try server.run();
 }
 

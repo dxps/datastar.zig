@@ -352,16 +352,8 @@
       </div>
     </div> // end svg morph
   </div>
-  <!-- top header div is fixed height 32, so place this 2 below ... hacky but works -->
-  <!--<div class="hero min-h-screen bg-cover bg-center bg-no-repeat relative"> Your real content goes here -->
-  <!-- 	<div class="relative z-10">-->
-  <!-- 		<div class="flex-col items-start">-->
-  <!-- 		</div>-->
-  <!-- 	</div>-->
-  <!-- </div>-->
-
   <!-- Resync if the server restarts -->
-  <pre data-init="@post('/hotreload/{[hotreload_id]}')" data-json-signals></pre>
+  <pre data-init="@post('/hotreload/{[hotreload_id]}')"></pre>
 </body>
 
 </html>

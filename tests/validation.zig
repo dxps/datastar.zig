@@ -8,13 +8,9 @@ const PORT = 7331;
 const HTTPRequest = datastar.HTTPRequest;
 
 // Run Datastar validation test suite backend in Zig
-pub fn main() !void {
-    var gpa = std.heap.DebugAllocator(.{}).init;
-    const allocator = gpa.allocator();
-
-    var threaded: Io.Threaded = .init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.arena.allocator();
+    const io = init.io;
 
     var server = try datastar.Server(void).init(io, allocator, "0.0.0.0", PORT);
     defer server.deinit();
