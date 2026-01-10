@@ -735,7 +735,7 @@ Swap in your own PubSub / Mailbox / Message Queue engine as you need, and follow
 - Send the first payload now, before the loop
 - In the handler, connect to whatever message broker you are using
 - Subscribe to various topics
-- Loop forever getting messasges
+- Loop forever getting messages
     - perform some action on the message
 
 You can see this being used in `02_cats.zig` for example, to update bids on the cat auctions.
