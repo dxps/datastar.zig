@@ -2,11 +2,20 @@ const std = @import("std");
 const pubsub = @import("pubsub");
 const datastar = @import("datastar.zig");
 
+const builtin = @import("builtin");
+const posix = std.posix; // probably gonna get deprecated soon ?
+
 const HTTPRequest = @import("http_request.zig");
 const Params = @import("params.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
+
+pub const LogType = enum {
+    none,
+    path,
+    full,
+};
 
 pub fn Server(comptime Context: type) type {
     return struct {
@@ -51,9 +60,18 @@ pub fn Server(comptime Context: type) type {
         }
 
         pub fn run(self: *Self) !void {
+            var group: std.Io.Group = .init;
+            defer group.cancel(self.io);
+
+            // create global app instance
             while (true) {
                 const conn = try self.server.accept(self.io);
-                _ = try self.io.concurrent(handleConnection, .{ self, conn });
+                group.concurrent(self.io, handleConnection, .{ self, conn }) catch |err| {
+                    std.log.err("spawn handler error {}\n", .{err});
+                    conn.close(self.io);
+                    // group.cancel(self.io);
+                    continue; // ah well failed - try another one, dont exit the loop
+                };
             }
         }
 
@@ -68,14 +86,16 @@ pub fn Server(comptime Context: type) type {
 
             var server = std.http.Server.init(&reader.interface, &writer.interface);
 
+            var arena: std.heap.ArenaAllocator = .init(self.allocator);
+            defer arena.deinit();
+
             while (true) {
+                defer _ = arena.reset(.retain_capacity);
+
                 var request = server.receiveHead() catch |err| {
                     if (err == error.HttpConnectionClosing) break;
                     return;
                 };
-
-                var arena: std.heap.ArenaAllocator = .init(self.allocator);
-                defer arena.deinit();
 
                 var http = HTTPRequest{
                     .io = self.io,
@@ -100,7 +120,7 @@ pub fn Server(comptime Context: type) type {
         fn watchLoop(self: *Self, args: std.process.Args) !void {
             const self_path = try std.process.executablePathAlloc(self.io, self.allocator);
             defer self.allocator.free(self_path);
-            std.debug.print("exe path is {s}\n", .{self_path});
+            std.log.warn("Monitoring EXE file {s}", .{self_path});
 
             var initial_inode: u64 = 0;
             var initial_mtime: Io.Timestamp = .zero;
@@ -108,7 +128,7 @@ pub fn Server(comptime Context: type) type {
             // wait around till the inital inode is available
             while (true) {
                 const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
-                    std.debug.print("Path {s} cannot stat: {}\n", .{ self_path, err });
+                    std.log.err("Path {s} cannot stat: {}", .{ self_path, err });
                     continue;
                 };
                 initial_inode = stat.inode;
@@ -120,7 +140,7 @@ pub fn Server(comptime Context: type) type {
                 try self.io.sleep(.fromSeconds(2), .real);
 
                 const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
-                    std.debug.print("Path {s} cannot stat: {}\n", .{ self_path, err });
+                    std.log.err("Path {s} cannot stat: {}", .{ self_path, err });
                     continue;
                 };
 
@@ -128,7 +148,7 @@ pub fn Server(comptime Context: type) type {
                 const mtime_changed = (stat.mtime.toMilliseconds() > initial_mtime.toMilliseconds());
 
                 if (inode_changed or mtime_changed) {
-                    std.debug.print("Binary Changed - Reboot ♻️\n", .{});
+                    std.log.warn("Binary Changed - Reboot", .{});
 
                     const argv = try self.allocator.alloc([]const u8, args.vector.len);
                     defer self.allocator.free(argv);
@@ -138,6 +158,26 @@ pub fn Server(comptime Context: type) type {
 
                     return std.process.replace(self.io, .{ .argv = argv });
                 }
+            }
+        }
+
+        pub fn maxFdLimits(_: *Self) !void {
+            switch (builtin.os.tag) {
+                .macos, .linux, .freebsd, .openbsd => {
+                    // Get current limits
+                    var limit = try posix.getrlimit(.NOFILE);
+                    std.log.warn("Process FD limit Current={}, raise to {}", .{ limit.cur, limit.max });
+
+                    // Set Soft Limit (cur) to the Hard Limit (max)
+                    // On macOS, 'max' is typically 10,240 by default.
+                    limit.cur = limit.max;
+
+                    posix.setrlimit(.NOFILE, limit) catch |err| {
+                        std.log.err("Failed to bump limits: {}", .{err});
+                        return err;
+                    };
+                },
+                else => return,
             }
         }
     };
@@ -157,6 +197,7 @@ pub fn Router(comptime Context: type) type {
 
         allocator: std.mem.Allocator,
         root: *Node,
+        log_type: LogType = .none,
 
         const Node = struct {
             segment: []const u8 = "",
@@ -180,6 +221,10 @@ pub fn Router(comptime Context: type) type {
             root.* = .{};
             self.* = .{ .allocator = allocator, .root = root };
             return self;
+        }
+
+        pub fn setLogLevel(self: *Self, log_type: LogType) void {
+            self.log_type = log_type;
         }
 
         // No Context parameter needed - it's already baked into the Router type!
@@ -236,6 +281,10 @@ pub fn Router(comptime Context: type) type {
                 }
             }
             current.handlers[@intFromEnum(method)] = handler;
+            switch (self.log_type) {
+                .none => {},
+                .path, .full => std.log.debug("  > {t} {s}", .{ method, path }),
+            }
         }
 
         pub fn dispatch(self: *Self, ctx: ?Context, http: *HTTPRequest) !void {
@@ -269,7 +318,26 @@ pub fn Router(comptime Context: type) type {
             var path = http.req.head.target;
             const q = std.mem.indexOfScalar(u8, path, '?') orelse path.len;
             path = path[0..q];
-            // std.debug.print("{t} {s}\n", .{ http.req.head.method, path });
+
+            var t1 = try std.time.Timer.start();
+            defer {
+                switch (self.log_type) {
+                    .none => {},
+                    .path, .full => {
+                        std.log.info("{t:<6} {s:<40} {:>8} μs", .{
+                            http.req.head.method,
+                            path_only,
+                            t1.read() / std.time.ns_per_us,
+                        });
+
+                        if (http.req_payload) |payload| {
+                            if (self.log_type == .full) {
+                                std.log.debug(" > {t} Payload: {s}", .{ http.req.head.method, payload });
+                            }
+                        }
+                    },
+                }
+            }
 
             const method_idx = @intFromEnum(http.req.head.method);
             if (current.handlers[method_idx]) |h| {
@@ -277,12 +345,14 @@ pub fn Router(comptime Context: type) type {
                 // check that the handler actually sent a response
                 // otherwise mock up a response for this
                 if (Context == void) {
-                    return h(http) catch {
+                    return h(http) catch |err| {
+                        std.log.err("{} - {t} {s}", .{ err, http.req.head.method, http.req.head.target });
                         return http.req.respond("Error", .{ .status = .internal_server_error });
                     };
                 } else {
                     if (ctx) |c| {
-                        return h(c, http) catch {
+                        return h(c, http) catch |err| {
+                            std.log.err("{} - {t} {s}", .{ err, http.req.head.method, http.req.head.target });
                             return http.req.respond("Error", .{ .status = .internal_server_error });
                         };
                     }

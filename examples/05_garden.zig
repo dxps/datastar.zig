@@ -22,7 +22,6 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    // create global app instance
     var app = try App.init(io, allocator);
     defer app.deinit();
 
@@ -37,13 +36,15 @@ pub fn main(init: std.process.Init) !void {
     // create routes
     {
         const r = server.router;
+        r.setLogLevel(.full);
         r.get("/", index);
         r.get("/plants", plantList);
         r.post("/planteffect/:side/:plantid", postPlantEffect);
         r.get("/assets/:assetname", getAsset);
     }
 
-    std.debug.print("listening http://localhost:{d}/\n", .{PORT});
+    std.log.info("listening http://localhost:{d}", .{PORT});
+    try server.maxFdLimits();
     try server.rebooter(init.minimal.args);
     try server.run();
 }
@@ -110,7 +111,7 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
     while (try mq.next()) |event| {
         switch (event) {
             .msg => |m| {
-                std.debug.print("Event: {}\n", .{m.topic});
+                std.log.info("Event: {}", .{m.topic});
                 switch (m.topic) {
                     .plants => {
                         try app.pushPlantList(&sse);
@@ -121,12 +122,12 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
                 }
             },
             .timeout => {
-                std.debug.print("timeout\n", .{});
+                std.log.warn("timeout", .{});
                 try sse.keepalive();
             },
         }
     }
-    std.debug.print("no more events ...\n", .{});
+    std.log.info("no more events ...", .{});
 }
 
 fn postPlantEffect(app: *App, http: *HTTPRequest) !void {
@@ -311,7 +312,7 @@ const Plant = struct {
             p.growth_stage = @enumFromInt(@intFromEnum(p.growth_stage) + 1);
             p.growth_steps = 0;
         }
-        std.debug.print("Plant stats: {t}:{t}:{t} {{water: {d}, ph: {d}, sun: {d}}}\n", .{
+        std.log.debug("Plant stats: {t}:{t}:{t} {{water: {d}, ph: {d}, sun: {d}}}", .{
             p.crop_type,
             p.growth_stage,
             p.state,

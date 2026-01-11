@@ -58,7 +58,7 @@ To build an application using this SDK
 zig fetch --save="datastar" "git+https://github.com/zigster64/datastar.zig"
 ```
 
-2) In your `build.zig`, add the `datastar` module as a dependency you your program:
+2) In your `build.zig`, add the `datastar` module as a dependency of your program:
 
 ```zig
 const datastar = b.dependency("datastar", .{
@@ -99,6 +99,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Setup all the routes
     const r = server.router;
+    r.setLog(.full);
     r.get("/", index);
     r.get("/sse/:id", sseEndpoint);
     ... all the routes
@@ -320,6 +321,8 @@ server.deinit()
 server.run()
 // tell the whole app to reload and reboot whenever the program is re-compiled
 server.rebooter(args)
+// boost Process FD limits to the max, useful for stress testing
+server.maxFdLimits()
 ```
 
 The built in HTTPServer provides a simple fast router 
@@ -330,6 +333,7 @@ var server = try datastar.Server(*App).initIp6(io, allocator, PORT);
 server.setContext(&app);
 
 var r = server.router;  // get the router from the Server we created
+r.setLog(.full); // apply full logging 
 
 r.get(path, handler)
 r.post(path, handler)

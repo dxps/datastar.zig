@@ -16,6 +16,7 @@ arena: std.mem.Allocator,
 params: Params,
 extra_headers: ?[]const std.http.Header = null,
 detach: bool = false, // detached is set if there is any SSE acting on this request - which stops it looping looking for more requests on the same connection
+req_payload: ?[]const u8 = null,
 
 /// Return a new SSE object for a simple 1 shot response
 pub fn NewSSE(http: *HTTPRequest) !SSE {
@@ -143,7 +144,7 @@ pub fn query(self: HTTPRequest) ![]const u8 {
 }
 
 /// read Datastar signals from the request into the given struct type, return an instance of this struct
-pub fn readSignals(self: HTTPRequest, comptime T: type) !T {
+pub fn readSignals(self: *HTTPRequest, comptime T: type) !T {
     const req = self.req;
     const arena = self.arena;
 
@@ -177,6 +178,7 @@ pub fn readSignals(self: HTTPRequest, comptime T: type) !T {
             const reader = req.readerExpectNone(&reader_buffer);
 
             try reader.readSliceAll(body);
+            self.req_payload = self.arena.dupe(u8, body) catch null;
             return std.json.parseFromSliceLeaky(
                 T,
                 arena,

@@ -28,41 +28,42 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
-    // set the unique ID of this server = timestamp in milliseconds
-    hotreload_id = (try Io.Clock.real.now(io)).toMilliseconds();
-
     var server = try HTTPServer.initIp6(io, allocator, PORT);
     defer server.deinit();
 
-    const r = server.router;
-    r.get("/", index);
-    r.get("/style.css", styleCss);
+    // Max out the Process FD Quota, useful for stress testing
+    try server.maxFdLimits();
 
-    r.get("/text-html", textHtml);
-    r.get("/patch", patchElements);
-    r.post("/patch/opts", patchElementsOpts);
-    r.post("/patch/opts/reset", patchElementsOptsReset);
-    r.get("/patch/json", jsonSignals);
-    r.get("/patch/signals", patchSignals);
-    r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
-    r.get("/patch/signals/remove/:names", patchSignalsRemove);
-    r.get("/executescript/:sample", executeScript);
-    r.get("/svg-morph", svgMorph);
-    r.get("/mathml-morph", mathMorph);
-    r.get("/code/:snip", code);
+    {
+        const r = server.router;
+        r.setLogLevel(.full);
+        r.get("/", index);
+        r.get("/style.css", styleCss);
 
-    // Reboot on recompile, and hot reload the client
-    r.post("/hotreload/:id", hotreload);
+        r.get("/text-html", textHtml);
+        r.get("/patch", patchElements);
+        r.post("/patch/opts", patchElementsOpts);
+        r.post("/patch/opts/reset", patchElementsOptsReset);
+        r.get("/patch/json", jsonSignals);
+        r.get("/patch/signals", patchSignals);
+        r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
+        r.get("/patch/signals/remove/:names", patchSignalsRemove);
+        r.get("/executescript/:sample", executeScript);
+        r.get("/svg-morph", svgMorph);
+        r.get("/mathml-morph", mathMorph);
+        r.get("/code/:snip", code);
+
+        // Reboot on recompile, and hot reload the client
+        r.post("/hotreload/:id", hotreload);
+    }
+
     try server.rebooter(init.minimal.args);
 
-    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
+    std.log.info("Server listening on http://localhost:{}", .{PORT});
     try server.run();
 }
 
 fn index(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("Index elapsed {}(ns)\n", .{t1.read()});
-
     return http.htmlFmt(@embedFile("01_index.html"), .{ .hotreload_id = hotreload_id });
 }
 
@@ -75,7 +76,7 @@ fn hotreload(http: *HTTPRequest) !void {
     var sse = try http.NewSSESync();
     defer sse.close();
     if (id != hotreload_id) {
-        std.debug.print("Client is stale - reload them\n", .{});
+        std.log.warn("Client is stale - reload them", .{});
         try sse.executeScript("window.location.reload()", .{});
     }
 
@@ -90,9 +91,6 @@ fn hotreload(http: *HTTPRequest) !void {
 }
 
 fn textHtml(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("TextHTML elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     try http.html(
         try std.fmt.allocPrint(http.arena,
             \\<p id="text-html">This is update number {d}</p>
@@ -101,9 +99,6 @@ fn textHtml(http: *HTTPRequest) !void {
 }
 
 fn patchElements(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("patchElements elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     // Apply extra headers to the HTTPRequest before the response is sent
     http.extra_headers = &.{
         .{ .name = "X-More-Headers", .value = "Top level http extra headers" },
@@ -136,9 +131,6 @@ fn patchElements(http: *HTTPRequest) !void {
 //
 // Use a variety of patch options for this one
 fn patchElementsOpts(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("patchElementsOpts elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     const signals = try http.readSignals(struct { morph: []const u8 });
 
     // jump out if we didnt set anything
@@ -183,9 +175,6 @@ fn patchElementsOpts(http: *HTTPRequest) !void {
 
 // Just reset the options form if it gets ugly
 fn patchElementsOptsReset(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("patchElementsOptsReset elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     var sse = try http.NewSSE();
     defer sse.close();
 
@@ -196,9 +185,6 @@ fn patchElementsOptsReset(http: *HTTPRequest) !void {
 
 // update signals using plain old JSON response
 fn jsonSignals(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("jsonSignals elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     // this will set the following signals, by just outputting a JSON response rather than an SSE response
     const foo = prng.random().intRangeAtMost(u8, 0, 255);
     const bar = prng.random().intRangeAtMost(u8, 0, 255);
@@ -207,9 +193,6 @@ fn jsonSignals(http: *HTTPRequest) !void {
 }
 
 fn patchSignals(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("patchSignals elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     // Outputs a formatted patch-signals SSE response to update signals
     var sse = try http.NewSSE();
     defer sse.close();
@@ -224,9 +207,6 @@ fn patchSignals(http: *HTTPRequest) !void {
 }
 
 fn patchSignalsOnlyIfMissing(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("patchSignalsOnlyIfMissing elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     var sse = try http.NewSSE();
     defer sse.close();
 
@@ -247,9 +227,6 @@ fn patchSignalsOnlyIfMissing(http: *HTTPRequest) !void {
 }
 
 fn patchSignalsRemove(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("patchSignalsOnlyIfMissing elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     const signals_to_remove: []const u8 = http.params.get("names") orelse return error.InvalidSignalName;
     var names_iter = std.mem.splitScalar(u8, signals_to_remove, ',');
 
@@ -287,9 +264,6 @@ const snippets = [_][]const u8{
 };
 
 fn executeScript(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("executeScript elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     const sample = http.params.getInt(u8, "sample") orelse 0;
 
     var sse = try http.NewSSE();
@@ -326,9 +300,6 @@ fn executeScript(http: *HTTPRequest) !void {
 
 // output some morphs to the SVG elements using svg namespace
 fn svgMorph(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("svgMorph elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     var seed: u64 = undefined;
     std.crypto.random.bytes(std.mem.asBytes(&seed));
     prng.seed(seed);
@@ -396,9 +367,6 @@ const mathMLs = [_][]const u8{
 
 // output some random MathML
 fn mathMorph(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer std.debug.print("svgMorph elapsed {}(μs)\n", .{t1.read() / std.time.ns_per_ms});
-
     var seed: u64 = undefined;
     std.crypto.random.bytes(std.mem.asBytes(&seed));
     prng.seed(seed);
@@ -439,7 +407,7 @@ fn code(http: *HTTPRequest) !void {
     const snip = http.params.getInt(u8, "snip") orelse 1;
 
     if (snip < 1 or snip > snippets.len) {
-        std.debug.print("Invalid code snippet {}, range is 1-{}\n", .{ snip, snippets.len });
+        std.log.warn("Invalid code snippet {}, range is 1-{}", .{ snip, snippets.len });
         return error.InvalidCodeSnippet;
     }
 

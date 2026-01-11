@@ -34,6 +34,7 @@ pub fn main(init: std.process.Init) !void {
     // create the routes
     {
         const r = server.router;
+        r.setLogLevel(.full);
         r.get("/", index);
         r.get("/style.css", styleCss);
         r.get("/cats", catsList);
@@ -42,7 +43,8 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // run the server
-    std.debug.print("listening http://localhost:{d}/\n", .{PORT});
+    std.log.info("listening http://localhost:{d}", .{PORT});
+    try server.maxFdLimits();
     try server.rebooter(init.minimal.args);
     try server.run();
 }
@@ -65,7 +67,7 @@ fn styleCss(_: *App, http: *HTTPRequest) !void {
 fn catsList(app: *App, http: *HTTPRequest) !void {
     const session = http.getCookie("session") orelse return error.NoCookie;
     const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
-    std.debug.print("catList for session {s} with prefs {t}\n", .{ session, sort_prefs.sort });
+    std.log.info("catList for session {s} with prefs {t}", .{ session, sort_prefs.sort });
 
     var sse = try http.NewSSESync();
     defer sse.close();
@@ -83,7 +85,7 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
     mq.setTimeout(.fromSeconds(30));
 
     while (try mq.next()) |event| {
-        std.debug.print("Session {s} got event {f}\n", .{ session, event });
+        std.log.info("Session {s} got event {f}", .{ session, event });
         switch (event) {
             .msg => |m| switch (m.topic) {
                 .cats => try app.pushCatList(&sse, session),
@@ -130,11 +132,11 @@ fn postSort(app: *App, http: *HTTPRequest) !void {
     var opt = try http.readSignals(struct { sort: []const u8 });
     const new_sort: SortType = .fromString(opt.sort);
 
-    std.debug.print("postSort session {s} has requested sort {t}\n", .{ session, new_sort });
+    std.log.info("postSort session {s} has requested sort {t}", .{ session, new_sort });
 
     const prefs: SessionPrefs = app.sessions.get(session) orelse .{ .sort = .id };
-    std.debug.print(
-        "Existing prefs for session {s} are {t} -> new sort {t}\n",
+    std.log.info(
+        "Existing prefs for session {s} are {t} -> new sort {t}",
         .{ session, prefs.sort, new_sort },
     );
 
@@ -248,11 +250,11 @@ const App = struct {
         const session_id = try std.fmt.allocPrint(app.allocator, "{d}", .{s});
         try app.sessions.put(session_id, .{});
 
-        std.debug.print("App Sessions after adding a new session ID:\n", .{});
-        var it = app.sessions.keyIterator();
-        while (it.next()) |k| {
-            std.debug.print("- {s}\n", .{k.*});
-        }
+        // std.debug.print("{} App Sessions after adding a new session ID: {}\n", .{ app.sessions.count(), s });
+        // var it = app.sessions.keyIterator();
+        // while (it.next()) |k| {
+        //     std.debug.print("- {s}\n", .{k.*});
+        // }
 
         return s;
     }
@@ -263,7 +265,7 @@ const App = struct {
 
         if (app.sessions.get(session_id) == null) {
             try app.sessions.put(try app.allocator.dupe(u8, session_id), .{});
-            std.debug.print("Had to add session {s} to my sessions list, because the client says its there, but I dont know about it\n", .{session_id});
+            std.log.warn("Had to add session {s} to my sessions list, because the client says its there, but I dont know about it\n", .{session_id});
         }
     }
 
@@ -288,7 +290,7 @@ const App = struct {
 
     pub fn sortCats(app: *App, sort: SortType) void {
         if (app.last_sort == sort) return;
-        std.debug.print("sorting by {} with last sort {}\n", .{ sort, app.last_sort });
+        std.log.info("sorting by {} with last sort {}", .{ sort, app.last_sort });
 
         switch (sort) {
             .id => std.sort.block(Cat, app.cats.items, {}, catSortID),
@@ -309,7 +311,7 @@ const App = struct {
         defer app.mutex.unlock();
 
         const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
-        std.debug.print("pushCatList for session {s} with prefs {}\n", .{ session, sort_prefs });
+        std.log.info("pushCatList for session {s} with prefs {}", .{ session, sort_prefs });
 
         app.sortCats(.id);
 
@@ -340,9 +342,9 @@ const App = struct {
         // on the client to update.
         // So this is called when any other client sharing the same session
         // changes their preference
-        std.debug.print("Update signals for session {s}\n", .{session});
+        std.log.info("Update signals for session {s}", .{session});
         if (app.sessions.get(session)) |prefs| {
-            std.debug.print("New pref is {t}\n", .{prefs.sort});
+            std.log.info("New pref is {t}", .{prefs.sort});
             try sse.patchSignals(.{
                 .sort = @tagName(prefs.sort),
             }, .{}, .{});

@@ -27,6 +27,7 @@ pub fn main(init: std.process.Init) !void {
     // create the routes
     {
         const r = server.router;
+        r.setLogLevel(.full);
         r.get("/", index);
         r.get("/style.css", styleCss);
         r.get("/cats", catsList);
@@ -34,8 +35,9 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // run the server
-    std.debug.print("listening http://localhost:{d}/\n", .{PORT});
+    std.log.info("listening http://localhost:{d}", .{PORT});
     try server.rebooter(init.minimal.args);
+    try server.maxFdLimits();
     try server.run();
 }
 
