@@ -11,7 +11,7 @@ const Params = @import("params.zig");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-pub const LogType = enum {
+pub const LogLevel = enum {
     none,
     path,
     full,
@@ -197,7 +197,7 @@ pub fn Router(comptime Context: type) type {
 
         allocator: std.mem.Allocator,
         root: *Node,
-        log_type: LogType = .none,
+        log_level: LogLevel = .path,
 
         const Node = struct {
             segment: []const u8 = "",
@@ -223,8 +223,8 @@ pub fn Router(comptime Context: type) type {
             return self;
         }
 
-        pub fn setLogLevel(self: *Self, log_type: LogType) void {
-            self.log_type = log_type;
+        pub fn setLogLevel(self: *Self, log_level: LogLevel) void {
+            self.log_level = log_level;
         }
 
         // No Context parameter needed - it's already baked into the Router type!
@@ -281,7 +281,7 @@ pub fn Router(comptime Context: type) type {
                 }
             }
             current.handlers[@intFromEnum(method)] = handler;
-            switch (self.log_type) {
+            switch (self.log_level) {
                 .none => {},
                 .path, .full => std.log.debug("  > {t} {s}", .{ method, path }),
             }
@@ -321,7 +321,7 @@ pub fn Router(comptime Context: type) type {
 
             var t1 = try std.time.Timer.start();
             defer {
-                switch (self.log_type) {
+                switch (self.log_level) {
                     .none => {},
                     .path, .full => {
                         std.log.info("{t:<6} {s:<40} {:>8} μs", .{
@@ -331,7 +331,7 @@ pub fn Router(comptime Context: type) type {
                         });
 
                         if (http.req_payload) |payload| {
-                            if (self.log_type == .full) {
+                            if (self.log_level == .full) {
                                 std.log.debug(" > {t} Payload: {s}", .{ http.req.head.method, payload });
                             }
                         }
