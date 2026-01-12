@@ -1,5 +1,5 @@
 <div class="card-body" id="patch-element-card">
-  <h2 class="card-title">(03) PatchElements Options</h2>
+  <h2 class="card-title">(3) PatchElements using SSE with Options</h2>
   <p id="mf-patch-opts" class="border-1">Click the button to use PatchElements to update this content using
     different options</p>
   <p>Select Morph Options</p>
@@ -16,8 +16,8 @@
     </div>
   </div>
   <div class="justify-end card-actions">
-    <button class="btn btn-warning" data-on:click="@get('/patch/opts/reset')">Reset</button>
-    <button class="btn btn-primary" data-on:click="@get('/patch/opts')">Patch With Options</button>
+    <button class="btn btn-warning" data-on:click="@post('/patch/opts/reset')">Reset</button>
+    <button class="btn btn-primary" data-on:click="@post('/patch/opts')">Patch With Options</button>
   </div>
   <details class="collapse bg-base-100 border-base-300 border">
     <summary class="collapse-title font-semibold">Show Code</summary>

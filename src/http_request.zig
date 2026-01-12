@@ -19,6 +19,7 @@ method: std.http.Method = .GET,
 extra_headers: ?[]const std.http.Header = null,
 detach: bool = false, // detached is set if there is any SSE acting on this request - which stops it looping looking for more requests on the same connection
 req_payload: ?[]const u8 = null,
+status: std.http.Status = .ok,
 
 /// Return a new SSE object for a simple 1 shot response
 pub fn NewSSE(http: *HTTPRequest) !SSE {
@@ -249,7 +250,7 @@ pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8 {
             while (cookie_it.next()) |pair| {
                 const trimmed = std.mem.trim(u8, pair, " ");
 
-                if (std.mem.indexOfScalar(u8, trimmed, '=')) |idx| {
+                if (std.mem.findScalar(u8, trimmed, '=')) |idx| {
                     const key = trimmed[0..idx];
 
                     if (std.mem.eql(u8, key, name)) {

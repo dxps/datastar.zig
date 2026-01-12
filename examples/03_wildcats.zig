@@ -1,9 +1,11 @@
 const std = @import("std");
 const datastar = @import("datastar");
+const HTTPServer = datastar.ServerCtx(*App);
+const HTTPRequest = datastar.HTTPRequest;
+
 const pubsub = datastar.pubsub;
 
 const Io = std.Io;
-const HTTPRequest = datastar.HTTPRequest;
 const Allocator = std.mem.Allocator;
 
 const PORT = 8083;
@@ -26,15 +28,13 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     // create the server
-    const HTTPServer = datastar.Server(*App);
-    var server = try HTTPServer.initIp6(io, allocator, PORT);
-    server.setContext(app);
+    var server = try HTTPServer.initIp6(io, allocator, PORT, app, .payload);
     defer server.deinit();
+    std.log.info("listening http://localhost:{d}", .{PORT});
 
     // create the routes
     {
         const r = server.router;
-        r.setLogLevel(.full);
         r.get("/", index);
         r.get("/style.css", styleCss);
         r.get("/cats", catsList);
@@ -43,7 +43,6 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // run the server
-    std.log.info("listening http://localhost:{d}", .{PORT});
     try server.maxFdLimits();
     try server.rebooter(init.minimal.args);
     try server.run();

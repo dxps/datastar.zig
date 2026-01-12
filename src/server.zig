@@ -14,10 +14,15 @@ const Allocator = std.mem.Allocator;
 pub const LogLevel = enum {
     none,
     path,
-    full,
+    payload,
+    signals,
 };
 
-pub fn Server(comptime Context: type) type {
+pub fn Server() type {
+    return ServerCtx(void);
+}
+
+pub fn ServerCtx(comptime Context: type) type {
     return struct {
         const Self = @This();
 
@@ -26,34 +31,61 @@ pub fn Server(comptime Context: type) type {
         server: Io.net.Server = undefined,
         router: *Router(Context),
         ctx: ?Context = null,
+        log_level: LogLevel = .path,
 
-        pub fn init(io: Io, allocator: Allocator, addr: []const u8, port: u16) !Self {
+        fn initVoid(io: Io, allocator: Allocator, addr: []const u8, port: u16, log_level: LogLevel) !Self {
             const address = try Io.net.IpAddress.parseIp4(addr, port);
             const server = try address.listen(io, .{ .reuse_address = true });
             return .{
                 .io = io,
                 .allocator = allocator,
                 .server = server,
-                .router = try Router(Context).init(allocator),
-                .ctx = null,
+                .router = try Router(Context).init(allocator, log_level),
+                .log_level = log_level,
             };
         }
 
-        pub fn initIp6(io: Io, allocator: Allocator, port: u16) !Self {
+        fn initCtx(io: Io, allocator: Allocator, addr: []const u8, port: u16, ctx: Context, log_level: LogLevel) !Self {
+            const address = try Io.net.IpAddress.parseIp4(addr, port);
+            const server = try address.listen(io, .{ .reuse_address = true });
+            return .{
+                .io = io,
+                .allocator = allocator,
+                .server = server,
+                .router = try Router(Context).init(allocator, log_level),
+                .ctx = ctx,
+                .log_level = log_level,
+            };
+        }
+
+        pub const init = if (Context == void) initVoid else initCtx;
+
+        fn initIp6Void(io: Io, allocator: Allocator, port: u16, log_level: LogLevel) !Self {
             const address = try Io.net.IpAddress.parseIp6("::", port);
             const server = try address.listen(io, .{ .reuse_address = true });
             return .{
                 .io = io,
                 .allocator = allocator,
                 .server = server,
-                .router = try Router(Context).init(allocator),
-                .ctx = null,
+                .router = try Router(Context).init(allocator, log_level),
+                .log_level = log_level,
             };
         }
 
-        pub fn setContext(self: *Self, ctx: Context) void {
-            self.ctx = ctx;
+        fn initIp6Ctx(io: Io, allocator: Allocator, port: u16, ctx: Context, log_level: LogLevel) !Self {
+            const address = try Io.net.IpAddress.parseIp6("::", port);
+            const server = try address.listen(io, .{ .reuse_address = true });
+            return .{
+                .io = io,
+                .allocator = allocator,
+                .server = server,
+                .router = try Router(Context).init(allocator, log_level),
+                .ctx = ctx,
+                .log_level = log_level,
+            };
         }
+
+        pub const initIp6 = if (Context == void) initIp6Void else initIp6Ctx;
 
         pub fn deinit(self: *Self) void {
             self.server.deinit(self.io);
@@ -119,7 +151,7 @@ pub fn Server(comptime Context: type) type {
         fn watchLoop(self: *Self, args: std.process.Args) !void {
             const self_path = try std.process.executablePathAlloc(self.io, self.allocator);
             defer self.allocator.free(self_path);
-            std.log.warn("Monitoring EXE file {s}", .{self_path});
+            std.log.warn("♻️ Monitoring Executable File {s}", .{self_path});
 
             var initial_inode: u64 = 0;
             var initial_mtime: Io.Timestamp = .zero;
@@ -147,7 +179,7 @@ pub fn Server(comptime Context: type) type {
                 const mtime_changed = (stat.mtime.toMilliseconds() > initial_mtime.toMilliseconds());
 
                 if (inode_changed or mtime_changed) {
-                    std.log.warn("Binary Changed - Reboot", .{});
+                    std.log.warn("♻️ Binary Changed - Reboot", .{});
 
                     const argv = try self.allocator.alloc([]const u8, args.vector.len);
                     defer self.allocator.free(argv);
@@ -165,14 +197,14 @@ pub fn Server(comptime Context: type) type {
                 .macos, .linux, .freebsd, .openbsd => {
                     // Get current limits
                     var limit = try posix.getrlimit(.NOFILE);
-                    std.log.warn("Process FD limit Current={}, raise to {}", .{ limit.cur, limit.max });
+                    std.log.warn("🚀 Process FD limit Current={}, raise to {}", .{ limit.cur, limit.max });
 
                     // Set Soft Limit (cur) to the Hard Limit (max)
                     // On macOS, 'max' is typically 10,240 by default.
                     limit.cur = limit.max;
 
                     posix.setrlimit(.NOFILE, limit) catch |err| {
-                        std.log.err("Failed to bump limits: {}", .{err});
+                        std.log.err("🚀 Failed to bump limits: {}", .{err});
                         return err;
                     };
                 },
@@ -214,16 +246,12 @@ pub fn Router(comptime Context: type) type {
             }
         };
 
-        pub fn init(allocator: std.mem.Allocator) !*Self {
+        pub fn init(allocator: std.mem.Allocator, log_level: LogLevel) !*Self {
             const self = try allocator.create(Self);
             const root = try allocator.create(Node);
             root.* = .{};
-            self.* = .{ .allocator = allocator, .root = root };
+            self.* = .{ .allocator = allocator, .root = root, .log_level = log_level };
             return self;
-        }
-
-        pub fn setLogLevel(self: *Self, log_level: LogLevel) void {
-            self.log_level = log_level;
         }
 
         // No Context parameter needed - it's already baked into the Router type!
@@ -282,9 +310,22 @@ pub fn Router(comptime Context: type) type {
             current.handlers[@intFromEnum(method)] = handler;
             switch (self.log_level) {
                 .none => {},
-                .path, .full => std.log.debug("  > {t} {s}", .{ method, path }),
+                .path, .payload, .signals => std.log.debug("  > {t} {s}", .{ method, path }),
             }
         }
+
+        fn statusColor(status: std.http.Status) []const u8 {
+            const code = @intFromEnum(status);
+            return switch (code) {
+                200...299 => "\x1b[32m", // Green
+                300...399 => "\x1b[36m", // Cyan
+                400...499 => "\x1b[33m", // Yellow
+                500...599 => "\x1b[31m", // Red
+                else => "\x1b[0m", // Reset/White
+            };
+        }
+
+        const resetColor = "\x1b[0m";
 
         pub fn dispatch(self: *Self, ctx: ?Context, http: *HTTPRequest) !void {
             var params = Params{};
@@ -293,6 +334,7 @@ pub fn Router(comptime Context: type) type {
             const target = http.path;
             const query_index = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
             const path_only = target[0..query_index];
+            const query_params = target[query_index..];
 
             var it = std.mem.tokenizeScalar(u8, path_only, '/');
 
@@ -310,7 +352,10 @@ pub fn Router(comptime Context: type) type {
                         break;
                     }
                 }
-                if (match) |m| current = m else return http.req.respond("", .{ .status = .not_found });
+                if (match) |m| current = m else {
+                    http.status = .not_found;
+                    return http.req.respond("", .{ .status = http.status });
+                }
             }
 
             http.params = params;
@@ -322,17 +367,35 @@ pub fn Router(comptime Context: type) type {
             defer {
                 switch (self.log_level) {
                     .none => {},
-                    .path, .full => {
-                        std.log.info("{t:<6} {s:<40} {:>8} μs", .{
-                            http.method,
+                    .path, .payload, .signals => {
+                        std.log.info("{t:<6} {s:<60} {s}{}{s} {:>8} μs", .{
+                            http.req.head.method,
                             path_only,
+                            statusColor(http.status),
+                            @intFromEnum(http.status),
+                            resetColor,
                             t1.read() / std.time.ns_per_us,
                         });
 
-                        if (http.req_payload) |payload| {
-                            if (self.log_level == .full) {
-                                std.log.debug(" > {t} Payload: {s}", .{ http.method, payload });
-                            }
+                        switch (self.log_level) {
+                            else => {},
+                            .payload => {
+                                if (http.req_payload) |payload| {
+                                    std.log.debug(" > {s}", .{payload});
+                                }
+                            },
+                            .signals => {
+                                if (query_params.len > 0) {
+                                    const buf: []u8 = "";
+                                    var decode_params = http.arena.dupe(u8, query_params) catch buf;
+                                    const start_index = if (std.mem.findScalar(u8, decode_params, '=')) |idx| idx + 1 else 0;
+                                    decode_params = decode_params[start_index..];
+                                    _ = std.mem.replaceScalar(u8, decode_params, '+', ' ');
+                                    std.log.debug(" > Signals: {s}", .{
+                                        std.Uri.percentDecodeInPlace(decode_params),
+                                    });
+                                }
+                            },
                         }
                     },
                 }
@@ -345,21 +408,24 @@ pub fn Router(comptime Context: type) type {
                 // otherwise mock up a response for this
                 if (Context == void) {
                     return h(http) catch |err| {
-                        std.log.err("{} - {t} {s}", .{ err, http.method, http.path });
-                        return http.req.respond("Error", .{ .status = .internal_server_error });
+                        std.log.err("{} - {t} {s}", .{ err, http.req.head.method, http.req.head.target });
+                        http.status = .internal_server_error;
+                        return http.req.respond("Error", .{ .status = http.status });
                     };
                 } else {
                     if (ctx) |c| {
                         return h(c, http) catch |err| {
-                            std.log.err("{} - {t} {s}", .{ err, http.method, http.path });
-                            return http.req.respond("Error", .{ .status = .internal_server_error });
+                            std.log.err("{} - {t} {s}", .{ err, http.req.head.method, http.req.head.target });
+                            http.status = .internal_server_error;
+                            return http.req.respond("Error", .{ .status = http.status });
                         };
                     }
                     return error.NoContext;
                 }
             }
 
-            return http.req.respond("Method Not Allowed", .{ .status = .method_not_allowed });
+            http.status = .method_not_allowed;
+            return http.req.respond("Method Not Allowed", .{ .status = http.status });
         }
     };
 }

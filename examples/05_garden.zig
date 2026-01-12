@@ -1,10 +1,11 @@
 const std = @import("std");
 const datastar = @import("datastar");
+const HTTPServer = datastar.ServerCtx(*App);
+const HTTPRequest = datastar.HTTPRequest;
 const pubsub = datastar.pubsub;
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
-const HTTPRequest = datastar.HTTPRequest;
 
 const GM = false;
 const homepage = @embedFile("05_index.html");
@@ -26,22 +27,20 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     // create the server
-    const HTTPServer = datastar.Server(*App);
-    var server = try HTTPServer.initIp6(io, allocator, PORT);
-    server.setContext(app);
+    var server = try HTTPServer.initIp6(io, allocator, PORT, app, .payload);
     defer server.deinit();
+    std.log.info("listening http://localhost:{d}", .{PORT});
 
     // create routes
     {
         const r = server.router;
-        r.setLogLevel(.full);
+        server.log_level = .payload;
         r.get("/", index);
         r.get("/plants", plantList);
         r.post("/planteffect/:side/:plantid", postPlantEffect);
         r.get("/assets/:assetname", getAsset);
     }
 
-    std.log.info("listening http://localhost:{d}", .{PORT});
     try server.maxFdLimits();
     try server.rebooter(init.minimal.args);
     _ = try Io.concurrent(io, updateLoop, .{app});

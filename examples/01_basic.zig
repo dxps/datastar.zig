@@ -1,5 +1,6 @@
 const std = @import("std");
 const datastar = @import("datastar");
+const HTTPServer = datastar.Server();
 const HTTPRequest = datastar.HTTPRequest;
 
 const Io = std.Io;
@@ -35,13 +36,13 @@ pub fn main(init: std.process.Init) !void {
 
     var server = try HTTPServer.initIp6(io, allocator, PORT);
     defer server.deinit();
+    std.log.info("Server listening on http://localhost:{}", .{PORT});
 
     // Max out the Process FD Quota, useful for stress testing
     try server.maxFdLimits();
 
     {
         const r = server.router;
-        r.setLogLevel(.full);
         r.get("/", index);
         r.get("/style.css", styleCss);
 
@@ -65,8 +66,6 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try server.rebooter(init.minimal.args);
-
-    std.log.info("Server listening on http://localhost:{}", .{PORT});
     try server.run();
 }
 

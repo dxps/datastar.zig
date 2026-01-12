@@ -5,6 +5,7 @@ const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
 pub const Server = @import("server.zig").Server;
+pub const ServerCtx = @import("server.zig").ServerCtx;
 pub const HTTPRequest = @import("http_request.zig");
 pub const Params = @import("params.zig");
 
@@ -236,7 +237,7 @@ pub fn readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Se
     switch (req.head.method) {
         .GET => {
             const target = req.head.target;
-            const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
+            const query_idx = std.mem.findScalar(u8, target, '?') orelse return error.MissingDatastarKey;
             const query_string = target[query_idx + 1 ..];
 
             var it = std.mem.tokenizeScalar(u8, query_string, '&');
@@ -445,7 +446,7 @@ pub const Message = struct {
 
         var rest = bytes;
 
-        while (std.mem.indexOfScalar(u8, rest, '\n')) |idx| {
+        while (std.mem.findScalar(u8, rest, '\n')) |idx| {
             const line = rest[0 .. idx + 1];
 
             // Start a line if we aren't already in one

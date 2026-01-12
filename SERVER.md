@@ -1,328 +1,24 @@
-# Datastar lib for zig 0.16-dev
-
-![Cyberpunk Datastar Zig SDK - Sydney Metro Rail - Leica XV](assets/datastar.zig.jpg)
-
-A Zig library for 0.16 / latest stdlib that conforms to the Datastar SDK specification.
-
-https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
-
-.. and passes the official Datastar test cases.
-
-Versions :
-- Datastar 1.0.0-RC7
-- Zig 0.16-dev
-
-NOTE - Zig 0.16-dev has frequent breaking changes, and will for while. Keep this in mind if having fun
-with being on the bleeding edge !! You have been warned !!
-
-| Date | Build Version | Major Changes / Features Included |
-| :--- | :--- | :--- |
-| **10-Jan-2026** | `0.16.0-dev.2040+c475f1fcd` | **Juicy Main** changes (Entry point & std refactor) |
-| **19-Jan-2026** | `0.16.0-dev.2193+fc517bd01` | `http.content()`, `http.css()`, `http.sendFile()` |
-
-For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
-
-# Audience and Scope
-
-Who is this repo for ?
-
-- Anyone interested in using Datastar. https://data-star.dev.
-
-Datastar allows you to build interactive Web UIs, driven from the backend server, using only
-declarative HTML on the frontend, and streaming events from the backend.
-
-It is particularly good for doing real time push updates, event sourcing, and
-multi-player or collaborative applications.
-
-See the end of this document for more resources if you want to know more about Datastar in detail.
-
-Datastar uses a well defined SSE-first protocol that is backend agnostic - you can use the the same simple 
-SDK functions to write the same app in Go, Clojure, C#, PHP, Python, Bun, Ruby, Rust, Lisp, Racket, Java, etc. 
-
-This project adds Zig 0.16-dev to that list of supported SDK languages.
-
-_Why consider the Zig version then ? Who is that for ?_
-
-- Existing Zig programmers who want to try working with Web+Datastar under 0.16-dev
-- Datastar app builders who want to experiment with performance, and dabble in new backend languages
-
-Consider Zig if every microsecond counts, or you want small memory footprints.
-
-Try it out.
-
-# Installation and Usage
-
-To build an application using this SDK
-
-1) Add datastar.zig as a dependency in your `build.zig.zon`:
-
-```bash
-zig fetch --save="datastar" "git+https://github.com/zigster64/datastar.zig"
-```
-
-2) In your `build.zig`, add the `datastar` module as a dependency of your program:
-
-```zig
-const datastar = b.dependency("datastar", .{
-    .target = target,
-    .optimize = optimize,
-});
-
-// the executable from your call to b.addExecutable(...)
-exe.root_module.addImport("datastar", datastar.module("datastar"));
-
-// or add the module "datastar" to the .imports section of your exe
-```
-
-3) In your application code
-
-Depends on the HTTP Framework you are using.
-
-This SDK does include a complete HTTP Framework for Zig 0.16 to get 
-you started. Here is a full example using this built in HTTP Server
-with Datastar specific SSE events.
-
-```zig
-
-const std = @import("std");
-const datastar = @import("datastar");
-const HTTPServer = datastar.Server();
-const HTTPRequest = datastar.HTTPRequest;
-
-const ADDRESS = "0.0.0.0"; // all IP addresses
-const PORT = 8080; 
-
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    var server = try HTTPServer.init(io, allocator, ADDRESS, PORT, .path);
-    defer server.deinit();
-    std.debug.print("Server listening on http://{s}:{}\n", .{ADDRESS, PORT});
-
-    // Setup all the routes
-    const r = server.router;
-    r.get("/", index);
-    r.get("/sse/:id", sseEndpoint);
-    ... all the routes
-
-    try server.run();
-}
-
-// Index page handler code
-fn index(http: *HTTPRequest) !void {
-    // Note
-    // - Include the Datastar bundle (or you can host your own)
-    // - The body makes a call to /see to fetch content
-    // - The div id="hello" is a target for updating in the /sse call
-    // - The data-json-signals element provides debugging output for the current state of signals
-    return http.html(
-        \\<!DOCTYPE html>
-        \\<head>
-        \\  <script type="module"
-        \\    src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js">
-        \\  </script>
-        \\</head>
-
-        \\<body data-init="@get('/sse/zig')">
-        \\  <div id="hello">Loading ...</div>
-        \\  <div>Foo <span data-text="$foo"></span></div>
-        \\  <div>Bar <input data-bind:bar /></div>
-        \\  <pre data-json-signals></pre>
-        \\</body>
-    );
-}
-
-// A simple SSE endpoint that generates a set of events over the stream
-fn sseEndpoint(http: *HTTPRequest) !void {
-    const id = http.params.get("id") orelse return error.NoID;
-
-    // turn the endpoint into an SSE stream
-    var sse = try http.NewSSE();
-    defer sse.close();
-
-    // Now we can send multiple actions over the SSE stream
-
-    // Update just the id='hello' element in the DOM
-    try sse.patchElements("<div id='hello'>Hello World</div>", .{});
-
-    // send a batch of signals for reactive DOM updates
-    try sse.patchSignals(.{ .foo = 42, .bar = "Datastar Rocks" }, .{}, .{});
-
-    // invoke scripts directly from the backend
-    try sse.executeScriptFmt("alert('All your base are belong to {s}')", .{id}, .{});
-}
-```
-
-# Web Server that works with Zig 0.16-dev ?
-
-This 0.16 Version of the Datastar SDK includes a basic web development framework and fast radix-tree
-based router that uses the stdlib http server.
-
-It uses similar API conventions to https://github.com/karlseguin/http.zig, tuned
-specifically for use with Datastar applications.
-
-You can use this built-in server, or you can use any other HTTP Server Framework that works with
-Zig 0.16. 
-
-See the example above in the install step about using the built in HTTP Server.
-
-See notes at the end of this document about adapting other HTTP Server Frameworks.
-
-
-# Quick Start Introduction
-
-If you just want to quickly install this, and try out the demo programs first, do this :
-
-```
-... get zig 0.16-dev installed on your machine, then ...
-
-git clone https://github.com/zigster64/datastar.zig
-cd datastar.zig
-zig build
-./zig-out/bin/example_1
-```
-
-Then open your browser to http://localhost:8081
-
-
-This will bring up a kitchen sink app that shows each of the SDK functions in use in the browser, with a 
-section that displays the code to use on your backend to drive the page you are looking at.
-
-Suggest that you use the Browser DevTools to have a look at whats happening over the wire in each case.
-
-For the SSE streams, you can see that the request contains a stream of small payloads that contain 
-an event header, some params, followed by multiple lines of data.
-
-![Screenshot of example_1](./docs/images/example_1a.png)
-
-![Show Code example](./docs/images/show_code.png)
-
----
-Example of SVG and MathML morphing from the backend
-
-The SDK allows you to patch interior elements of an SVG or MathML block, without having to re-render the
-entire block. 
-
-https://github.com/user-attachments/assets/e8f48b44-c84d-4c43-9c1c-58a057db3e33
-
-https://github.com/user-attachments/assets/2383156f-6ba1-40de-8b45-117bbf59ed84
-
----
-
-`./zig-out/bin/example_2` - a simple cat auction site.
-Bring up multiple browser windows and watch the bids get updated in realtime to all windows.
-
-![Screenshot of example_2](./docs/images/example_2.png)
-
----
-
-`./zig-out/bin/example_3` - a more complex WildCat aution site, with session based preferences managed
-at the backend.
-
-Bring up multiple browser windows and watch the bids get updated in realtime to all windows.
-Change preferences, and watch that all browser windows in the same session get their preferences updated.
-
-Use a different machine, or browser to simulate a new session.
-
-Note that the bids update in realtime across all clients, and just the preferences changes are sticky
-across all clients belonging to the same session.
-
-When the backend generates an update for each connected client, the output is customized by the backend
-to suit the session preferences.
-
-There is no logic being applied on the frontend in this example - its all driven from the backend.
-
-![Screenshot of example_3](./docs/images/example_3.png)
-
----
-
-`./zig-out/bin/example_5` - an excellent and exciting multi-player farming simulator, where users can plant and attend 
-to various crops to help them grow to harvest (or whither and die if neglected)
-
-![Screenshot of example_5](./docs/images/example_5.png)
-
-# Validation Test
-
-When you run `zig build`, it will compile several apps into `./zig-out/bin` including a binary called `validation-test`
-
-Run `./zig-out/bin/validation-test`, which will start a server on port 7331
-
-Then follow the procedure documented at
-
-https://github.com/starfederation/datastar/blob/main/sdk/tests/README.md
-
-To run the official Datastar validation suite against this test harness
-
-The source code for the `validation-test` program is in the file `tests/validation.zig`
-
-Current version passes all tests.
-
+# Web Server Documentation
 
 # Functions
-
-## Cheatsheet of all Datastar SDK functions
-
-```zig
-const datastar = @import("datastar");
-
-// read signals either from GET or POST
-http.readSignals(comptime T: type) !T  // for use with the built in HTTPServer, where http = *HTTPRequest
-datastar.readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Server.Request) !T // generic interface if you are not using the built in HTTPServer
-
-// set the connection to SSE, and return an SSE object
-var sse = http.NewSSE() !SSE
-var sse = http.NewSSESync() !SSE
-var sse = http.NewSSEOpt(sse_options) !SSE
-
-// when you are finished with this connection - you will want to do ONE of these
-defer sse.close()
-defer sse.flush()
-
-// when you want to keep the connection alive for a long time 
-// then you might want to send keepalive pings every minute or
-// so to ensure that the connection is tracked.
-// Call this to send a "keepalive" SSE event
-sse.keepalive()
-
-// patch elements function variants
-sse.patchElements(elementsHTML, elements_options) !void
-sse.patchElementsFmt(comptime elementsHTML, arguments, elements_options) !void
-sse.patchElementsWriter(elements_options) *std.Io.Writer 
-
-// patch signals function variants
-sse.patchSignals(value, json_options, signals_options) !void
-sse.patchSignalsWriter(signals_options) *std.Io.Writer
-
-// execute scripts function variants
-sse.executeScript(script, script_options) !void
-sse.executeScriptFmt(comptime script, arguments, script_options) !void
-sse.executeScriptWriter(script_options) *std.Io.Writer
-```
 
 ## Cheatsheet of all HTTPServer functions
 
 ```zig
-// Using a Generic Server 
+// Generate a Server type that has no global context
 // handler signatures are handler(HTTPRequest)
-Server()
-server.init(io, allocator, address, port, log_level) !Server
-// create a server listening on all interfaces with both IPv4 and IPv6
-server.initIp6(io, allocator, port, log_level) !Server
+Server(void)
 
 // Generate a Server type that takes a type as a global app context
 // handler signatures are handler(Context, HTTPRequest)
-ServerCtx(T)
-server.init(io, allocator, address, port, context, log_level) !Server
-server.initIp6(io, allocator, port, context, log_level) !Server
+Server(T)
+server.setContext(ctx)
 
-// Server log levels.  Default = .path unless you set it otherwise
-// .none - no extra logs generated
-// .path - print (METHOD /path STATUS TIME) for each request
-// .payload - print POST/PUT/etc payload bodies
-// .signals - print GET Signals payloads as well
+// create a server given an address
+server.init(io, allocator, address, port) !Server
+// create a server listening on all interfaces with both IPv4 and IPv6
+server.initIp6(io, allocator, port) !Server
 // server instance cleanup
-
 server.deinit()
 // run the server
 server.run()
@@ -335,7 +31,21 @@ server.maxFdLimits()
 The built in HTTPServer provides a simple fast router 
 
 ```zig
+var app = App.init(allocator); // create a global state context for this app
+var server = try datastar.Server(*App).initIp6(io, allocator, PORT, context, log_level);
+
+// Set log levels.  Default = .path unless you set it otherwise
+// .none - no extra logs generated by this router
+// .path - print  (METHOD /path TIME) for each request
+// .full - print .path as above.  And print the whole Payload for POST/PUT etc
+
+// "context" passed to Server(T).init(io, allocator, address, port, context: T, log_level)
+// is of the type defined in the Server(T) call
+
+
 var r = server.router;  // get the router from the Server we created
+
+r.setLogLevel(level)  
 
 r.get(path, handler)
 r.post(path, handler)
@@ -357,12 +67,11 @@ fn userHandler(app: *App, http *HTTPRequest) !void {
 ```
 
 When using the built in HTTPServer, all handlers receive either : 
-- a single paramater of type `*HTTPRequest` for servers of type `Server()`
-- a context, and a `*HTTPRequest` for servers of type `ServerCtx(T)`
+- a single paramater of type `*HTTPRequest` for servers of type `Server(void)`
+- a context, and a `*HTTPRequest` for servers of type `Server(T)`
 
 See the above code example, where a global context of type `App` is created,
-and the server is defined as `ServerCtx(*App)`, passing the value of
-the context to the init() 
+and the server is defined as `Server(*App)`, followed by `server.setContext(&app)`.
 
 In this case, the handler functions now all receive that global context.
 
@@ -375,32 +84,15 @@ http.req     - the *std.http.Server.Request value
 http.io      - which std.Io interface is in use when calling this handler
 http.arena   - a per-request arena for doing allocations in your handler
 http.params  - the route parameters used in the request
-http.path    - the full URL path including query params
-http.method  - the HTTP method
 
-// Get just the URL path without Query params
-http.getPathOnly() []const u8
-
-// Sending content in the response
-http.data(content, mime_type) !void // output content with given mime type
-http.html(content) !void            // output content as text/html
-http.htmlFmt(format, args) !void    // print formatted output content as text/html
-http.json(content) !void            // convert content to JSON and output as application/json
-http.css(content) !void             // output content as text/css
-http.cssFmt(format, args) !void     // print formatted output content as text/css
-http.js(content) !void              // output content as application/javascript
-http.jsFmt(format, args) !void      // print formatted output content as application/javascript
-
-// Dealing with query params
-http.query() ?[]const u8            // get the query string for this request or null if not present
-http.readSignals(T) !T              // read the signals from the request into struct of given type
-http.setCookie(name, value)         // set a cookie with the response
-http.getCookie(name)                // get a cookie from the requesnt
-
-// Sending a file
-// Send the contents of the file, with optional mime_type
-// if mime_type is null, will calculate based on the name extension
-http.sendFile(filename, ?mime_type) !void 
+// Functions
+http.html(data) !void            // output data as text/html
+http.htmlFmt(format, args) !void // print formatted output data as text/html
+http.json(data) !void            // convert data to JSON and output as application/json
+http.query() ![]const u8         // get the query string for this request 
+http.readSignals(T) !T           // read the signals from the request into struct of given type
+http.setCookie(name, value)      // set a cookie with the response
+http.getCookie(name)             // get a cookie from the requesnt
 
 // Route Parameters 
 http.params.get(name) ?[]const u8  // get the value of named parameter :name
@@ -840,7 +532,6 @@ You can achieve this by adding a call to `server.rebooter(args)` during startup 
 ```zig
     var server = try HTTPServer.initIp6(io, allocator, PORT);
     defer server.deinit();
-    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
 
     const r = server.router;
     r.setLogLevel(.path); // just show the paths
@@ -852,6 +543,8 @@ You can achieve this by adding a call to `server.rebooter(args)` during startup 
 
     // Tell the server to reboot on recompile
     try server.rebooter(init.minimal.Args); // <---- ADD THIS
+
+    std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
     try server.run();
 ```
 
