@@ -47,14 +47,14 @@ pub fn main(init: std.process.Init) !void {
         r.get("/style.css", styleCss);
 
         r.get("/text-html", textHtml);
-        r.get("/patch", patchElements);
-        r.post("/ppatch/opts", patchElementsOpts);
-        r.post("/ppatch/reset", patchElementsOptsReset);
+        r.patch("/patch", patchElements);
+        r.post("/patch/opts", patchElementsOpts);
+        r.post("/patch/opts/reset", patchElementsOptsReset);
         r.get("/patch/json", jsonSignals);
         r.get("/patch/signals", patchSignals);
-        r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
-        r.get("/patch/signals/remove/:names", patchSignalsRemove);
-        r.get("/executescript/:sample", executeScript);
+        r.delete("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
+        r.delete("/patch/signals/remove/:names", patchSignalsRemove);
+        r.put("/executescript/:sample", executeScript);
         r.get("/svg-morph", svgMorph);
         r.get("/mathml-morph", mathMorph);
         r.get("/code/:snip", code);
@@ -184,8 +184,6 @@ fn patchElementsOptsReset(http: *HTTPRequest) !void {
     var sse = try http.NewSSE();
     defer sse.close();
 
-    std.debug.print("reset with method {t}\n", .{http.req.head.method});
-    std.debug.print("reset with target {s}\n", .{http.req.head.target});
     try sse.patchElements(@embedFile("01_index_opts.html"), .{});
 }
 

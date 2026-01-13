@@ -33,93 +33,106 @@ status: std.http.Status = .ok,
 timer: std.time.Timer = undefined,
 log: Log = .{},
 
-/// Return a new SSE object for a simple 1 shot response
-pub fn NewSSE(http: *HTTPRequest) !SSE {
-    return NewSSEOpt(http, .{});
-}
-
-/// Return a new SSE object setup for a series of synchronous responses or persistent connection
-pub fn NewSSESync(http: *HTTPRequest) !SSE {
-    return NewSSEOpt(http, .{ .sync = true });
-}
-
-/// Return a new SSE object with custom options
-pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
-    const buf_size = if (opt.buffer_size != 0) opt.buffer_size else datastar.DEFAULT_BUFFER_SIZE;
-    const buf = try http.arena.alloc(u8, buf_size);
-
-    // IF we are text/event-stream AND we have no content-length (chunked encoding)
-    // THEN detach the request from the connection - because the browser will never queue
-    // another request over this same connection
-    if (opt.sync) {
-        http.detach = true;
+    /// Return a new SSE object for a simple 1 shot response
+    pub fn NewSSE(http: *HTTPRequest) !SSE {
+        return NewSSEOpt(http, .{});
     }
 
-    // need to create a BodyWriter on the heap, because we use it after this
-    // because this is on the arena owned by the handleConnection->request ...
-    // that means the handler needs to stay alive for as long we expect to keep
-    // using this bodyWriter. This has implications for pub/sub
-    const res = try http.arena.create(std.http.BodyWriter);
-    var headers: []const std.http.Header = try http.mergeHeaders(&.{
-        .{ .name = "content-type", .value = "text/event-stream; charset=UTF-8" },
-        .{ .name = "cache-control", .value = "no-cache" },
-    });
-    if (opt.extra_headers) |extras| {
-        headers = try http.mergeHeaders(extras);
+    /// Return a new SSE object setup for a series of synchronous responses or persistent connection
+    pub fn NewSSESync(http: *HTTPRequest) !SSE {
+        return NewSSEOpt(http, .{ .sync = true });
     }
 
-    res.* = try http.req.respondStreaming(
-        buf,
-        .{ .respond_options = .{ .extra_headers = headers } },
-    );
-    const allocating_writer = blk: {
-        if (opt.buffer_size == 0) break :blk Io.Writer.Allocating.init(http.arena);
-        break :blk Io.Writer.Allocating.initCapacity(http.arena, opt.buffer_size) catch Io.Writer.Allocating.init(http.arena);
-    };
-    if (opt.sync) {
-        try res.flush();
+    /// Return a new SSE object with custom options
+    pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
+        const buf_size = if (opt.buffer_size != 0) opt.buffer_size else datastar.DEFAULT_BUFFER_SIZE;
+        const buf = try http.arena.alloc(u8, buf_size);
+
+        // IF we are text/event-stream AND we have no content-length (chunked encoding)
+        // THEN detach the request from the connection - because the browser will never queue
+        // another request over this same connection
+        if (opt.sync) {
+            http.detach = true;
+        }
+
+        // need to create a BodyWriter on the heap, because we use it after this
+        // because this is on the arena owned by the handleConnection->request ...
+        // that means the handler needs to stay alive for as long we expect to keep
+        // using this bodyWriter. This has implications for pub/sub
+        const res = try http.arena.create(std.http.BodyWriter);
+        var headers: []const std.http.Header = try http.mergeHeaders(&.{
+            .{ .name = "content-type", .value = "text/event-stream; charset=UTF-8" },
+            .{ .name = "cache-control", .value = "no-cache" },
+        });
+        if (opt.extra_headers) |extras| {
+            headers = try http.mergeHeaders(extras);
+        }
+
+        res.* = try http.req.respondStreaming(
+            buf,
+            .{ .respond_options = .{ .extra_headers = headers } },
+        );
+        const allocating_writer = blk: {
+            if (opt.buffer_size == 0) break :blk Io.Writer.Allocating.init(http.arena);
+            break :blk Io.Writer.Allocating.initCapacity(http.arena, opt.buffer_size) catch Io.Writer.Allocating.init(http.arena);
+        };
+        if (opt.sync) {
+            try res.flush();
+        }
+
+        return .{
+            .stream = res,
+            .output_buffer = allocating_writer,
+            .buffer_size = opt.buffer_size,
+            .sync = opt.sync,
+            .io = http.io,
+            .start_time = try Io.Clock.real.now(http.io),
+        };
     }
 
-    return .{
-        .stream = res,
-        .output_buffer = allocating_writer,
-        .buffer_size = opt.buffer_size,
-        .sync = opt.sync,
-        .io = http.io,
-        .start_time = try Io.Clock.real.now(http.io),
-    };
-}
+    /// use this to construct extra_headers when creating any response
+    /// it will pull in self.extra_headers, and merge them with the new set
+    /// to provide a complete set for the actual request
+    /// See http.setCookie() for an example where this is needed
+    pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const std.http.Header {
+        const defaults = &[_]std.http.Header{
+            .{ .name = "connection", .value = "keep-alive" },
+            .{ .name = "x-powered-by", .value = "datastar.zig" },
+        };
 
-/// use this to construct extra_headers when creating any response
-/// it will pull in self.extra_headers, and merge them with the new set
-/// to provide a complete set for the actual request
-/// See http.setCookie() for an example where this is needed
-pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const std.http.Header {
-    const defaults = &[_]std.http.Header{
-        .{ .name = "connection", .value = "keep-alive" },
-        .{ .name = "x-powered-by", .value = "datastar.zig" },
-    };
+        const stored_extras = if (self.extra_headers) |h| h else &[_]std.http.Header{};
+        const total_len = defaults.len + stored_extras.len + extra.len;
+        const combined = try self.arena.alloc(std.http.Header, total_len);
 
-    const stored_extras = if (self.extra_headers) |h| h else &[_]std.http.Header{};
-    const total_len = defaults.len + stored_extras.len + extra.len;
-    const combined = try self.arena.alloc(std.http.Header, total_len);
+        var cursor: usize = 0;
 
-    var cursor: usize = 0;
+        @memcpy(combined[cursor..][0..defaults.len], defaults);
+        cursor += defaults.len;
 
-    @memcpy(combined[cursor..][0..defaults.len], defaults);
-    cursor += defaults.len;
+        if (stored_extras.len > 0) {
+            @memcpy(combined[cursor..][0..stored_extras.len], stored_extras);
+            cursor += stored_extras.len;
+        }
 
-    if (stored_extras.len > 0) {
-        @memcpy(combined[cursor..][0..stored_extras.len], stored_extras);
-        cursor += stored_extras.len;
+        if (extra.len > 0) {
+            @memcpy(combined[cursor..][0..extra.len], extra);
+        }
+
+        return combined;
     }
 
-    if (extra.len > 0) {
-        @memcpy(combined[cursor..][0..extra.len], extra);
+    /// send a response of type text/html with the given data
+    pub fn html(self: *HTTPRequest, data: []const u8) !void {
+        try self.req.respond(
+            data,
+            .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "text/html" }}) },
+        );
     }
 
-    return combined;
-}
+    /// send a response of type text/html with a formatted print
+    pub fn htmlFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !void {
+        try self.html(try std.fmt.allocPrint(self.arena, fmt, args));
+    }
 
 // send generic data, with given mime type
 pub fn sendData(self: *HTTPRequest, content: []const u8, mime_type: []const u8) !void {
@@ -169,8 +182,7 @@ pub fn json(self: *HTTPRequest, content: anytype) !void {
             .respond_options = .{
                 .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "application/json" }}),
             },
-        },
-    );
+        );
 
     try std.json.Stringify.value(content, .{}, &body_writer.writer);
     try body_writer.end();
@@ -233,7 +245,6 @@ pub fn readSignals(self: *HTTPRequest, comptime T: type) !T {
             );
         },
     }
-}
 
 /// set a cookie that will be included in the response header
 pub fn setCookie(self: *HTTPRequest, name: []const u8, value: []const u8) !void {

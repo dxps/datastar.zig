@@ -82,7 +82,7 @@
           <h2 class="card-title">(2) PatchElements using SSE</h2>
           <p id="mf-patch">Click the button to use PatchElements to update this content using <i>.outer</i></p>
           <div class="justify-end card-actions">
-            <button class="btn btn-primary" data-on:click="@get('/patch')">Patch
+            <button class="btn btn-primary" data-on:click="@patch('/patch')">Patch
               Morph</button>
           </div>
         </div>
@@ -114,8 +114,8 @@
             </div>
           </div>
           <div class="justify-end card-actions">
-            <button class="btn btn-warning" data-on:click="@post('/ppatch/reset')">Reset</button>
-            <button class="btn btn-primary" data-on:click="@post('/ppatch/opts')">Patch With Options</button>
+            <button class="btn btn-warning" data-on:click="@post('/patch/opts/reset')">Reset</button>
+            <button class="btn btn-primary" data-on:click="@post('/patch/opts')">Patch With Options</button>
           </div>
           <details class="collapse bg-base-100 border-base-300 border">
             <summary class="collapse-title font-semibold">Show Code</summary>
@@ -176,7 +176,7 @@
             card, but only ones that are missing. so initially thats just 'newfoo' and 'newbar', then nothing updates
             after that. You can go to test 7 to explicitly remove these signals to test this.</p>
           <div class="justify-end card-actions">
-            <button class="btn btn-primary" data-on:click="@get('/patch/signals/onlymissing')">Patch Signals if
+            <button class="btn btn-primary" data-on:click="@delete('/patch/signals/onlymissing')">Patch Signals if
               Missing</button>
           </div>
           <code class="border-1 bg-gray-400" data-json-signals></code>
@@ -201,9 +201,9 @@
             <br>Otherwise, consider setting the signal to '' if you just want to blank the value out
           </p>
           <div class="justify-end card-actions">
-            <button class="btn btn-primary" data-on:click="@get('/patch/signals/remove/newfoo')">Remove Signal
+            <button class="btn btn-primary" data-on:click="@delete('/patch/signals/remove/newfoo')">Remove Signal
               'newfoo'</button>
-            <button class="btn btn-primary" data-on:click="@get('/patch/signals/remove/newbar')">Remove Signal
+            <button class="btn btn-primary" data-on:click="@delete('/patch/signals/remove/newbar')">Remove Signal
               'newbar'</button>
           </div>
           <details class="collapse bg-base-100 border-base-300 border">
@@ -223,18 +223,18 @@
           </p>
           <code class="border-1 bg-gray-400">console.log('Running from executescript!');</code>
           <div class="justify-end card-actions">
-            <button class="btn btn-primary" data-on:click="@get('/executescript/1')">Execute Script</button>
+            <button class="btn btn-primary" data-on:click="@put('/executescript/1')">Execute Script</button>
           </div>
           <code class="border-1 bg-gray-400">
             parent = document.querySelector('#execute-script-page');
             console.log(parent.outerHTML);
           </code>
           <div class="justify-end card-actions">
-            <button class="btn btn-primary" data-on:click="@get('/executescript/2')">Execute Script using
+            <button class="btn btn-primary" data-on:click="@put('/executescript/2')">Execute Script using
               Writer</button>
           </div>
           <div class="justify-end card-actions">
-            <button class="btn btn-warning" data-on:click="@get('/executescript/3')">Execute Script using formatted
+            <button class="btn btn-warning" data-on:click="@put('/executescript/3')">Execute Script using formatted
               print</button>
           </div>
           <details class="collapse bg-base-100 border-base-300 border">
