@@ -176,7 +176,7 @@
             card, but only ones that are missing. so initially thats just 'newfoo' and 'newbar', then nothing updates
             after that. You can go to test 7 to explicitly remove these signals to test this.</p>
           <div class="justify-end card-actions">
-            <button class="btn btn-primary" data-on:click="@delete('/patch/signals/onlymissing')">Patch Signals if
+            <button class="btn btn-primary" data-on:click="@get('/patch/signals/onlymissing')">Patch Signals if
               Missing</button>
           </div>
           <code class="border-1 bg-gray-400" data-json-signals></code>
@@ -201,9 +201,9 @@
             <br>Otherwise, consider setting the signal to '' if you just want to blank the value out
           </p>
           <div class="justify-end card-actions">
-            <button class="btn btn-primary" data-on:click="@delete('/patch/signals/remove/newfoo')">Remove Signal
+            <button class="btn btn-primary" data-on:click="@get('/patch/signals/remove/newfoo')">Remove Signal
               'newfoo'</button>
-            <button class="btn btn-primary" data-on:click="@delete('/patch/signals/remove/newbar')">Remove Signal
+            <button class="btn btn-primary" data-on:click="@get('/patch/signals/remove/newbar')">Remove Signal
               'newbar'</button>
           </div>
           <details class="collapse bg-base-100 border-base-300 border">

@@ -52,8 +52,8 @@ pub fn main(init: std.process.Init) !void {
         r.post("/patch/opts/reset", patchElementsOptsReset);
         r.get("/patch/json", jsonSignals);
         r.get("/patch/signals", patchSignals);
-        r.delete("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
-        r.delete("/patch/signals/remove/:names", patchSignalsRemove);
+        r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
+        r.get("/patch/signals/remove/:names", patchSignalsRemove);
         r.put("/executescript/:sample", executeScript);
         r.get("/svg-morph", svgMorph);
         r.get("/mathml-morph", mathMorph);
