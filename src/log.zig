@@ -22,11 +22,12 @@ pub const Format = enum {
 
 level: Level = .path,
 format: Format = .pretty,
-slow: std.Io.Duration = .fromMilliseconds(200),
-fast: std.Io.Duration = .fromNanoseconds(50_000),
+// units here are microseconds
+slow: u64 = 200_000, // 200ms
+fast: u64 = 20, // 20us
 
 pub fn info(log: Log, http: *HTTPRequest) void {
-    const elapsed: std.Io.Duration = .fromNanoseconds(http.timer.read());
+    const elapsed: u64 = http.timer.read();
     std.log.info("{s}{t:<6}{s} {s:<60} {s}{}{s} {s}{:>8}{s} μs", .{
         methodColor,
         http.req.head.method,
@@ -36,7 +37,7 @@ pub fn info(log: Log, http: *HTTPRequest) void {
         @intFromEnum(http.status),
         resetColor,
         log.timerColor(elapsed, http.detach),
-        @divTrunc(elapsed.toNanoseconds(), std.time.ns_per_us),
+        @divTrunc(elapsed, 1_000_000),
         resetColor,
     });
 }
@@ -87,16 +88,12 @@ fn statusColor(status: std.http.Status) []const u8 {
 }
 
 /// choose a color based on the elapsed time - units are ns
-fn timerColor(log: Log, duration: std.Io.Duration, detached: bool) []const u8 {
-    const fast = log.fast.toNanoseconds();
-    const slow = log.slow.toNanoseconds();
-    const elapsed = duration.toNanoseconds();
+fn timerColor(log: Log, elapsed: u64, detached: bool) []const u8 {
+    if (2 * elapsed <= log.fast) return "\x1b[1;32m"; // bold green for real fast
+    if (elapsed >= 2 * log.slow) return if (detached) "\x1b[41;30m" else "\x1b[0;91m"; // bold red for real slow
 
-    if (2 * elapsed <= fast) return "\x1b[1;32m"; // bold green for real fast
-    if (elapsed >= 2 * slow) return if (detached) "\x1b[41;30m" else "\x1b[0;91m"; // bold red for real slow
-
-    if (elapsed <= fast) return "\x1b[32m"; // green for fast
-    if (elapsed >= slow) return if (detached) "\x1b[41;30m" else "\x1b[31m"; // red for slow
+    if (elapsed <= log.fast) return "\x1b[32m"; // green for fast
+    if (elapsed >= log.slow) return if (detached) "\x1b[41;30m" else "\x1b[31m"; // red for slow
 
     return "\x1b[33m"; // yellow for average
 }

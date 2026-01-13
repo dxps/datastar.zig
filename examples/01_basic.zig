@@ -48,8 +48,8 @@ pub fn main(init: std.process.Init) !void {
 
         r.get("/text-html", textHtml);
         r.get("/patch", patchElements);
-        r.post("/patch/opts", patchElementsOpts);
-        r.post("/patch/reset", patchElementsOptsReset);
+        r.post("/ppatch/opts", patchElementsOpts);
+        r.post("/ppatch/reset", patchElementsOptsReset);
         r.get("/patch/json", jsonSignals);
         r.get("/patch/signals", patchSignals);
         r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);

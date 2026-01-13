@@ -132,6 +132,7 @@ pub fn ServerCtx(comptime Context: type) type {
 
                 var request = server.receiveHead() catch break;
 
+                std.log.debug("read header, gets {t} {s}", .{ request.head.method, request.head.target });
                 var http = HTTPRequest{
                     .io = self.io,
                     .req = &request,
@@ -466,7 +467,9 @@ pub fn Router(comptime Context: type) type {
                     }
                 },
             }
-            return http.respond("Method Not Allowed", .method_not_allowed);
+            if (!processed) {
+                return http.respond("Method Not Allowed", .method_not_allowed);
+            }
         }
     };
 }
