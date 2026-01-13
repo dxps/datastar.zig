@@ -1,6 +1,7 @@
 const std = @import("std");
 const datastar = @import("datastar.zig");
 const Params = @import("params.zig");
+const Log = @import("log.zig");
 
 const SSE = datastar.SSE;
 const SSEOptions = datastar.SSEOptions;
@@ -10,6 +11,15 @@ const Allocator = std.mem.Allocator;
 
 const HTTPRequest = @This();
 
+/// Member data of the HTTPRequest context
+/// We want to store
+///   - Some global state vars for arena and io
+///   - The raw request struct
+///   - Parsed params from the request
+///   - detached flag - if this is a long lived SSE, tells the dispatcher loop to not expect more requests this connection
+///   - extra headers to be applied when the response is created
+///   - time taken for the handler to be processed
+///   - status code for the response
 req: *std.http.Server.Request,
 io: Io,
 arena: std.mem.Allocator,
@@ -20,6 +30,8 @@ extra_headers: ?[]const std.http.Header = null,
 detach: bool = false, // detached is set if there is any SSE acting on this request - which stops it looping looking for more requests on the same connection
 req_payload: ?[]const u8 = null,
 status: std.http.Status = .ok,
+timer: std.time.Timer = undefined,
+log: Log = .{},
 
 /// Return a new SSE object for a simple 1 shot response
 pub fn NewSSE(http: *HTTPRequest) !SSE {

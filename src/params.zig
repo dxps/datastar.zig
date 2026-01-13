@@ -1,4 +1,5 @@
 const std = @import("std");
+const Node = @import("server.zig").Node;
 
 const Io = std.Io;
 const Params = @This();
@@ -7,6 +8,7 @@ names: [8][]const u8 = undefined,
 values: [8][]const u8 = undefined,
 count: usize = 0,
 
+/// get the given param by name
 pub fn get(self: Params, name: []const u8) ?[]const u8 {
     for (0..self.count) |i| {
         if (std.mem.eql(u8, self.names[i], name)) return self.values[i];
@@ -14,6 +16,7 @@ pub fn get(self: Params, name: []const u8) ?[]const u8 {
     return null;
 }
 
+/// get the given param by name, and parse it as an int
 pub fn getInt(self: Params, T: type, name: []const u8) ?T {
     for (0..self.count) |i| {
         if (std.mem.eql(u8, self.names[i], name)) {
@@ -23,6 +26,7 @@ pub fn getInt(self: Params, T: type, name: []const u8) ?T {
     return null;
 }
 
+/// pretty print the Param struct
 pub fn format(self: Params, writer: *Io.Writer) !void {
     try writer.writeAll("Params { ");
     for (0..self.count) |i| {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const pubsub = @import("pubsub");
 const datastar = @import("datastar.zig");
+const Log = @import("log.zig");
 
 const builtin = @import("builtin");
 const posix = std.posix; // probably gonna get deprecated soon ?
@@ -11,11 +12,12 @@ const Params = @import("params.zig");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-pub const LogLevel = enum {
-    none,
-    path,
-    payload,
-    signals,
+pub const Config = struct {
+    address: ?[]const u8 = null,
+    port: u16, // must be provided
+    log: Log = .{},
+    io: ?Io = null,
+    allocator: ?Allocator = null,
 };
 
 pub fn Server() type {
@@ -31,61 +33,67 @@ pub fn ServerCtx(comptime Context: type) type {
         server: Io.net.Server = undefined,
         router: *Router(Context),
         ctx: ?Context = null,
-        log_level: LogLevel = .path,
+        log: Log = undefined,
 
-        fn initVoid(io: Io, allocator: Allocator, addr: []const u8, port: u16, log_level: LogLevel) !Self {
-            const address = try Io.net.IpAddress.parseIp4(addr, port);
-            const server = try address.listen(io, .{ .reuse_address = true });
+        /// for Server() without std.process.init
+        fn initVoid(config: Config) !Self {
+            std.debug.assert(config.io != null);
+            std.debug.assert(config.allocator != null);
+
+            // if address is not defined / null - then listen on all addresses
+            const address = if (config.address) |addr|
+                try Io.net.IpAddress.parseIp4(addr, config.port)
+            else
+                try Io.net.IpAddress.parseIp6("::", config.port);
+
+            const io = config.io.?;
+            const allocator = config.allocator.?;
+
             return .{
+                .server = try address.listen(io, .{ .reuse_address = true }),
+                .router = try Router(Context).init(allocator),
+                .log = config.log,
                 .io = io,
                 .allocator = allocator,
-                .server = server,
-                .router = try Router(Context).init(allocator, log_level),
-                .log_level = log_level,
             };
         }
 
-        fn initCtx(io: Io, allocator: Allocator, addr: []const u8, port: u16, ctx: Context, log_level: LogLevel) !Self {
-            const address = try Io.net.IpAddress.parseIp4(addr, port);
-            const server = try address.listen(io, .{ .reuse_address = true });
+        /// for Server(Context) without std.process.init
+        fn initCtx(ctx: Context, config: Config) !Self {
+            var server = try initVoid(config);
+            server.ctx = ctx;
+            return server;
+        }
+
+        /// for Server() with std.process.init
+        fn fromVoid(process: std.process.Init, config: Config) !Self {
+            const io = config.io orelse process.io;
+            const allocator = config.allocator orelse process.gpa;
+
+            // if address is not defined / null - then listen on all addresses
+            const address = if (config.address) |addr|
+                try Io.net.IpAddress.parseIp4(addr, config.port)
+            else
+                try Io.net.IpAddress.parseIp6("::", config.port);
+
             return .{
+                .server = try address.listen(io, .{ .reuse_address = true }),
+                .router = try Router(Context).init(allocator),
+                .log = config.log,
                 .io = io,
                 .allocator = allocator,
-                .server = server,
-                .router = try Router(Context).init(allocator, log_level),
-                .ctx = ctx,
-                .log_level = log_level,
             };
+        }
+
+        /// for Server(Context) with std.process.init
+        fn fromCtx(process: std.process.Init, config: Config, ctx: Context) !Self {
+            var server = try fromVoid(process, config);
+            server.ctx = ctx;
+            return server;
         }
 
         pub const init = if (Context == void) initVoid else initCtx;
-
-        fn initIp6Void(io: Io, allocator: Allocator, port: u16, log_level: LogLevel) !Self {
-            const address = try Io.net.IpAddress.parseIp6("::", port);
-            const server = try address.listen(io, .{ .reuse_address = true });
-            return .{
-                .io = io,
-                .allocator = allocator,
-                .server = server,
-                .router = try Router(Context).init(allocator, log_level),
-                .log_level = log_level,
-            };
-        }
-
-        fn initIp6Ctx(io: Io, allocator: Allocator, port: u16, ctx: Context, log_level: LogLevel) !Self {
-            const address = try Io.net.IpAddress.parseIp6("::", port);
-            const server = try address.listen(io, .{ .reuse_address = true });
-            return .{
-                .io = io,
-                .allocator = allocator,
-                .server = server,
-                .router = try Router(Context).init(allocator, log_level),
-                .ctx = ctx,
-                .log_level = log_level,
-            };
-        }
-
-        pub const initIp6 = if (Context == void) initIp6Void else initIp6Ctx;
+        pub const from = if (Context == void) fromVoid else fromCtx;
 
         pub fn deinit(self: *Self) void {
             self.server.deinit(self.io);
@@ -115,8 +123,6 @@ pub fn ServerCtx(comptime Context: type) type {
 
             var reader = conn.reader(self.io, &read_buffer);
             var writer = conn.writer(self.io, &write_buffer);
-
-            var server = std.http.Server.init(&reader.interface, &writer.interface);
 
             var arena: std.heap.ArenaAllocator = .init(self.allocator);
             defer arena.deinit();
@@ -214,6 +220,69 @@ pub fn ServerCtx(comptime Context: type) type {
     };
 }
 
+middleware: ?*Middleware = null,
+
+// Middleware functions take a HTTPRequest, and return
+// - err if there is an error, no more processing
+// - true = continue, hand over to the next middleware in the chain
+// - false = do not continue .. response has been sent already, no more middleware
+const MiddlewareFunc = *const fn (req: HTTPRequest) anyerror!bool;
+const Middlewares = std.ArrayList(MiddlewareFunc);
+
+const Middleware = struct {
+    before: ?*Middlewares = null,
+    after: ?*Middlewares = null,
+    err: ?*Middlewares = null,
+};
+
+// Regiter onBefore middleware
+pub fn onBefore(self: *HTTPRequest, func: MiddlewareFunc) !void {
+    if (self.middleware == null) {
+        self.middleware = try self.arena.create(Middleware);
+        self.middleware.* = .{};
+    }
+    std.debug.assert(self.middleware != null);
+    if (self.middleware.before == null) {
+        self.middleware.before = try self.arena.create(Middlewares);
+        self.middleware.before = .{};
+    }
+    std.debug.assert(self.middleware.before != null);
+    try self.middleware.before.?.append(self.arena, func);
+}
+
+// Register onAfter middleware
+pub fn onAfter(self: *HTTPRequest, func: MiddlewareFunc) !void {
+    if (self.middleware == null) {
+        self.middleware = try self.arena.create(Middleware);
+        self.middleware.* = .{};
+    }
+    std.debug.assert(self.middleware != null);
+    if (self.middleware.after == null) {
+        self.middleware.after = try self.arena.create(Middlewares);
+        self.middleware.after = .{};
+    }
+    std.debug.assert(self.middleware.after != null);
+    try self.middleware.after.?.append(self.arena, func);
+}
+
+// Register onError middleware
+pub fn onError(self: *HTTPRequest, func: MiddlewareFunc) !void {
+    if (self.middleware == null) {
+        self.middleware = try self.arena.create(Middleware);
+        self.middleware.* = .{};
+    }
+    std.debug.assert(self.middleware != null);
+    if (self.middleware.err == null) {
+        self.middleware.err = try self.arena.create(Middlewares);
+        self.middleware.err = .{};
+    }
+    std.debug.assert(self.middleware.err != null);
+    try self.middleware.err.?.append(self.arena, func);
+}
+
+/// Define a custom RouteHandler for this type
+/// - will either take just the HTTPRequest param for Server() type servers
+/// - will take Context,HTTPRequest for Server(Context) type servers
 pub fn RouteHandler(comptime Context: type) type {
     if (Context == void) {
         return *const fn (req: *HTTPRequest) anyerror!void;
@@ -228,7 +297,6 @@ pub fn Router(comptime Context: type) type {
 
         allocator: std.mem.Allocator,
         root: *Node,
-        log_level: LogLevel = .path,
 
         const Node = struct {
             segment: []const u8 = "",
@@ -246,11 +314,11 @@ pub fn Router(comptime Context: type) type {
             }
         };
 
-        pub fn init(allocator: std.mem.Allocator, log_level: LogLevel) !*Self {
+        pub fn init(allocator: std.mem.Allocator) !*Self {
             const self = try allocator.create(Self);
             const root = try allocator.create(Node);
             root.* = .{};
-            self.* = .{ .allocator = allocator, .root = root, .log_level = log_level };
+            self.* = .{ .allocator = allocator, .root = root };
             return self;
         }
 
@@ -308,43 +376,30 @@ pub fn Router(comptime Context: type) type {
                 }
             }
             current.handlers[@intFromEnum(method)] = handler;
-            switch (self.log_level) {
-                .none => {},
-                .path, .payload, .signals => std.log.debug("  > {t} {s}", .{ method, path }),
-            }
+            // on bootup - just always print the routes in effect
+            std.log.debug("  > {t} {s}", .{ method, path });
         }
-
-        fn statusColor(status: std.http.Status) []const u8 {
-            const code = @intFromEnum(status);
-            return switch (code) {
-                200...299 => "\x1b[32m", // Green
-                300...399 => "\x1b[36m", // Cyan
-                400...499 => "\x1b[33m", // Yellow
-                500...599 => "\x1b[31m", // Red
-                else => "\x1b[0m", // Reset/White
-            };
-        }
-
-        const resetColor = "\x1b[0m";
 
         pub fn dispatch(self: *Self, ctx: ?Context, http: *HTTPRequest) !void {
             var params = Params{};
-            var current = self.root;
+            const log = http.log;
 
             const target = http.path;
             const query_index = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
             const path_only = target[0..query_index];
-            const query_params = target[query_index..];
 
             var it = std.mem.tokenizeScalar(u8, path_only, '/');
-
+            var current = self.root;
             while (it.next()) |seg| {
                 var match: ?*Node = null;
                 for (current.children.items) |child| {
                     if (child.is_param) {
-                        params.names[params.count] = child.param_name;
-                        params.values[params.count] = seg;
-                        params.count += 1;
+                        // fill in the local params var from the actual URL in the request
+                        if (params.count < params.names.len) {
+                            params.names[params.count] = child.param_name;
+                            params.values[params.count] = seg;
+                            params.count += 1;
+                        }
                         match = child;
                         break;
                     } else if (std.mem.eql(u8, child.segment, seg)) {
@@ -352,10 +407,7 @@ pub fn Router(comptime Context: type) type {
                         break;
                     }
                 }
-                if (match) |m| current = m else {
-                    http.status = .not_found;
-                    return http.req.respond("", .{ .status = http.status });
-                }
+                if (match) |m| current = m else return http.respond("Not Found", .not_found);
             }
 
             http.params = params;
@@ -363,69 +415,58 @@ pub fn Router(comptime Context: type) type {
             const q = std.mem.indexOfScalar(u8, path, '?') orelse path.len;
             path = path[0..q];
 
-            var t1 = try std.time.Timer.start();
-            defer {
-                switch (self.log_level) {
-                    .none => {},
-                    .path, .payload, .signals => {
-                        std.log.info("{t:<6} {s:<60} {s}{}{s} {:>8} μs", .{
-                            http.req.head.method,
-                            path_only,
-                            statusColor(http.status),
-                            @intFromEnum(http.status),
-                            resetColor,
-                            t1.read() / std.time.ns_per_us,
-                        });
+            // TODO - apply the onBefore middlewares
+            // TODO - errdefer the onError middlewares
 
-                        switch (self.log_level) {
-                            else => {},
-                            .payload => {
-                                if (http.req_payload) |payload| {
-                                    std.log.debug(" > {s}", .{payload});
-                                }
-                            },
-                            .signals => {
-                                if (query_params.len > 0) {
-                                    const buf: []u8 = "";
-                                    var decode_params = http.arena.dupe(u8, query_params) catch buf;
-                                    const start_index = if (std.mem.findScalar(u8, decode_params, '=')) |idx| idx + 1 else 0;
-                                    decode_params = decode_params[start_index..];
-                                    _ = std.mem.replaceScalar(u8, decode_params, '+', ' ');
-                                    std.log.debug(" > Signals: {s}", .{
-                                        std.Uri.percentDecodeInPlace(decode_params),
-                                    });
-                                }
-                            },
-                        }
-                    },
-                }
-            }
+            var processed: bool = false;
 
             const method_idx = @intFromEnum(http.method);
             if (current.handlers[method_idx]) |h| {
                 // TODO - in here, if we call any non-GET handler, we should
                 // check that the handler actually sent a response
-                // otherwise mock up a response for this
+                // otherwise mock up a response for this ??
                 if (Context == void) {
-                    return h(http) catch |err| {
-                        std.log.err("{} - {t} {s}", .{ err, http.req.head.method, http.req.head.target });
-                        http.status = .internal_server_error;
-                        return http.req.respond("Error", .{ .status = http.status });
+                    h(http) catch |err| {
+                        log.err(http, err, .internal_server_error);
+                        try http.respond("Error", .internal_server_error);
                     };
+                    processed = true;
                 } else {
                     if (ctx) |c| {
-                        return h(c, http) catch |err| {
-                            std.log.err("{} - {t} {s}", .{ err, http.req.head.method, http.req.head.target });
-                            http.status = .internal_server_error;
-                            return http.req.respond("Error", .{ .status = http.status });
+                        h(c, http) catch |err| {
+                            log.err(http, err, .internal_server_error);
+                            try http.respond("Error", .internal_server_error);
                         };
+                        processed = true;
+                    } else {
+                        log.err(http, error.NoContext, .internal_server_error);
+                        return error.NoContext;
                     }
-                    return error.NoContext;
                 }
             }
 
-            http.status = .method_not_allowed;
-            return http.req.respond("Method Not Allowed", .{ .status = http.status });
+            if (processed) {
+                // TODO - run middlewares onAfter
+            }
+
+            // TODO - remove this after its done in logging middleware instead
+            switch (log.level) {
+                .none => {},
+                else => {
+                    log.info(http);
+
+                    switch (log.level) {
+                        .payload => log.payload(http),
+                        .signals => log.signals(http),
+                        .all => {
+                            log.signals(http);
+                            log.payload(http);
+                        },
+                        else => {},
+                    }
+                },
+            }
+            return http.respond("Method Not Allowed", .method_not_allowed);
         }
     };
 }

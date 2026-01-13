@@ -10,10 +10,7 @@ const PORT = 7331;
 
 // Run Datastar validation test suite backend in Zig
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    var server = try HTTPServer.init(io, allocator, "0.0.0.0", PORT, .payload);
+    var server = try HTTPServer.from(init, .{ .port = PORT });
     defer server.deinit();
     try server.rebooter(init.minimal.args);
 

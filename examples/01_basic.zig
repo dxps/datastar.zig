@@ -49,7 +49,7 @@ pub fn main(init: std.process.Init) !void {
         r.get("/text-html", textHtml);
         r.get("/patch", patchElements);
         r.post("/patch/opts", patchElementsOpts);
-        r.post("/patch/opts/reset", patchElementsOptsReset);
+        r.post("/patch/reset", patchElementsOptsReset);
         r.get("/patch/json", jsonSignals);
         r.get("/patch/signals", patchSignals);
         r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
@@ -184,9 +184,9 @@ fn patchElementsOptsReset(http: *HTTPRequest) !void {
     var sse = try http.NewSSE();
     defer sse.close();
 
-    try sse.patchElements(@embedFile("01_index_opts.html"), .{
-        .selector = "#patch-element-card",
-    });
+    std.debug.print("reset with method {t}\n", .{http.req.head.method});
+    std.debug.print("reset with target {s}\n", .{http.req.head.target});
+    try sse.patchElements(@embedFile("01_index_opts.html"), .{});
 }
 
 // update signals using plain old JSON response

@@ -28,7 +28,7 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     // create the server
-    var server = try HTTPServer.initIp6(io, allocator, PORT, app, .payload);
+    var server = try HTTPServer.from(init, .{ .port = PORT }, app);
     defer server.deinit();
     std.log.info("listening http://localhost:{d}", .{PORT});
 
