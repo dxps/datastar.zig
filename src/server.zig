@@ -449,6 +449,13 @@ pub fn Router(comptime Context: type) type {
                 // TODO - run middlewares onAfter
             }
 
+            if (!http.replied) {
+                // this is probably a user error - handler didnt bother
+                // replying.  So raise a log error and terminate the call anyway
+                http.html("") catch {};
+                // http.log.debug("  > Handler for {t} {s} didnt send a response, so we auto-send 200 ok", .{ http.req.head.method, http.path });
+            }
+
             // TODO - remove this after its done in logging middleware instead
             switch (log.level) {
                 .none => {},

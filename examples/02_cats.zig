@@ -108,6 +108,17 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
 
     // update any screens subscribed to "cats"
     try app.broadcast();
+
+    // If you dont reply here, the connection will be left open
+    // and the browser will be a response
+    //
+    // The router will detect this, and issue an automatic
+    // response 200 ok
+    //
+    // If you uncomment this next line, we send a custom json
+    // response to terminate the call, and the router wont intervene
+    //
+    // try http.json(.{ .bid = "ok", .id = id, .value = new_bid });
 }
 
 const Cat = struct {

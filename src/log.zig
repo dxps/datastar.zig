@@ -1,16 +1,8 @@
 const std = @import("std");
+const Themes = @import("themes.zig");
 const HTTPRequest = @import("http_request.zig");
 
 const Log = @This();
-
-const resetColor = "\x1b[0m";
-fn methodColor(method: std.http.Method) []const u8 {
-    return switch (method) {
-        .GET => "\x1b[1;30;45m", // purple
-        .DELETE => "\x1b[1;30;41m", // red
-        else => "\x1b[1;30;46m", // cyan
-    };
-}
 
 pub const Level = enum {
     none,
@@ -23,28 +15,38 @@ pub const Level = enum {
 pub const Format = enum {
     none,
     json,
-    pretty,
+    terminal,
 };
 
 level: Level = .path,
-format: Format = .pretty,
+format: Format = .terminal,
+theme: Themes.Theme = .classic,
+
 // units here are microseconds
 slow_ms: u64 = 200, // 200ms
 fast_us: u64 = 20, // 20us
 
 pub fn info(log: Log, http: *HTTPRequest) void {
     const elapsed: u64 = http.timer.read();
-    std.log.info("{s}{}{s} {s}{t:<6}{s} {s:<60} {s}{:>8}{s} μs", .{
-        statusColor(http.status),
+    const c = log.theme.get();
+    std.log.info("{s}{s}{s} {s}{}{s} {s}{t:<6}{s} {s:<60} {s}{:>8}{s} μs", .{
+        c.timestampColor(),
+        formatTimeAlloc(http),
+        c.reset,
+
+        c.statusColor(http.status),
         @intFromEnum(http.status),
-        resetColor,
-        methodColor(http.method),
+        c.reset,
+
+        c.methodColor(http.method),
         http.method,
-        resetColor,
+        c.reset,
+
         getPathOnly(http),
-        log.timerColor(elapsed, http.detach),
+
+        c.timerColor(log.fast_us, log.slow_ms, elapsed, http.detach),
         @divTrunc(elapsed, 1_000),
-        resetColor,
+        c.reset,
     });
 }
 
@@ -79,37 +81,46 @@ pub fn err(_: Log, http: *HTTPRequest, error_value: anyerror, status: std.http.S
     std.log.err("{} {t} - {t} {s}", .{ error_value, status, http.method, http.path });
 }
 
-fn statusColor(status: std.http.Status) []const u8 {
-    const code = @intFromEnum(status);
-    return switch (code) {
-        200...299 => "\x1b[32m", // Green
-        300...399 => "\x1b[36m", // Cyan
-        400...499 => "\x1b[33m", // Yellow
-        500...599 => "\x1b[1;31m", // Red
-        else => "\x1b[0m", // Reset/White
-    };
-}
-
-/// choose a color based on the elapsed time - units are ns
-fn timerColor(log: Log, elapsed: u64, detached: bool) []const u8 {
-    const elapsed_us = @divTrunc(elapsed, 1000);
-    const elapsed_ms = @divTrunc(elapsed_us, 1000);
-
-    // is it fast ?
-    if (2 * elapsed_us <= log.fast_us) return "\x1b[1;96m"; // bold cyan for real fast
-    if (elapsed_us <= log.fast_us) return "\x1b[32m"; // green for fast
-
-    // is it too slow ?
-    if (elapsed_ms >= 2 * log.slow_ms) return if (detached) "\x1b[41;30m" else "\x1b[0;91m"; // bold red for real slow
-    if (elapsed_ms >= log.slow_ms) return if (detached) "\x1b[41;30m" else "\x1b[31m"; // red for slow
-
-    return "\x1b[33m"; // yellow for average
-}
-
 fn getPathOnly(http: *HTTPRequest) []const u8 {
     const target = http.path;
     if (std.mem.findScalar(u8, target, '?')) |i| {
         return target[0..i];
     }
     return target;
+}
+
+/// Returns a formatted string "YYYY-MM-DD HH:MM:SS.UUUUUU"
+/// Caller owns the returned slice.
+pub fn formatTimeAlloc(http: *HTTPRequest) []u8 {
+    const micros_utc_ts: std.Io.Timestamp = std.Io.Clock.real.now(http.io) catch return "";
+    const micros_utc: u64 = @intCast(micros_utc_ts.toMilliseconds());
+    const seconds: u47 = @intCast(@divTrunc(micros_utc, std.time.ms_per_s));
+    const micros = micros_utc % std.time.ms_per_s;
+
+    const epoch_seconds = std.time.epoch.EpochSeconds{ .secs = seconds };
+    const epoch_day = std.time.epoch.EpochDay{ .day = @divTrunc(seconds, std.time.epoch.secs_per_day) };
+    const epoch_yearday = epoch_day.calculateYearDay();
+    const epoch_monthday = epoch_yearday.calculateMonthDay();
+    const day_seconds = epoch_seconds.getDaySeconds();
+
+    // Extract Date Components
+    const year = epoch_yearday.year;
+    const month = epoch_monthday.month;
+    const day = epoch_monthday.day_index;
+
+    // Extract Time Components
+    const hour = day_seconds.getHoursIntoDay();
+    const min = day_seconds.getMinutesIntoHour();
+    const sec = day_seconds.getSecondsIntoMinute();
+
+    // return std.fmt.allocPrint(http.arena, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}.{d:0>6}", .{
+    return std.fmt.allocPrint(http.arena, "{d:0>4}-{d:0>2}-{d:0>2} {d:0>2}:{d:0>2}:{d:0>2}.{d:0>3}", .{
+        year,
+        month,
+        day,
+        hour,
+        min,
+        sec,
+        micros,
+    }) catch "";
 }
