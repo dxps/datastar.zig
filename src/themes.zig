@@ -46,7 +46,7 @@ pub const Colorizer = struct {
         return self.vtable.timestampColor(self.ptr);
     }
     pub fn debugColor(self: Colorizer) []const u8 {
-        return self.vtable.timestampColor(self.ptr);
+        return self.vtable.debugColor(self.ptr);
     }
 };
 
@@ -164,7 +164,7 @@ pub const NewWave = struct {
         return "\x1b[38;5;103m";
     }
     fn debugColor(_: *const anyopaque) []const u8 {
-        return "\x1b[38;5;067;1m";
+        return "\x1b[48;5;238m";
     }
 };
 
@@ -222,7 +222,8 @@ pub const Monochrom = struct {
     fn timestampColor(_: *const anyopaque) []const u8 {
         return "\x1b[38;5;242m";
     }
+
     fn debugColor(_: *const anyopaque) []const u8 {
-        return "\x1b[38;5;211m";
+        return "\x1b[48;5;238;1m\x1b[0;38;5;217m";
     }
 };

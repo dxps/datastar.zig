@@ -56,7 +56,8 @@ pub fn debug(_: Log, comptime fmt: []const u8, args: anytype) void {
 
 pub fn payload(self: Log, http: *HTTPRequest) void {
     if (http.req_payload) |p| {
-        self.debug(" > {s}", .{p});
+        const c = self.theme.get();
+        self.debug(" {t} >\n{s}{s}{s}", .{ http.req.head.method, c.debugColor(), p, c.reset });
     }
 }
 
