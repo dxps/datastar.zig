@@ -65,7 +65,7 @@ pub fn main(init: std.process.Init) !void {
         r.post("/hotreload/:id", hotreload);
     }
 
-    try server.rebooter(init.minimal.args);
+    try server.rebooter(init);
     try server.run();
 }
 

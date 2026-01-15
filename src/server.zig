@@ -150,11 +150,12 @@ pub fn ServerCtx(comptime Context: type) type {
             }
         }
 
-        pub fn rebooter(self: *Self, args: std.process.Args) !void {
-            _ = try self.io.concurrent(Self.watchLoop, .{ self, args });
+        pub fn rebooter(self: *Self, proc: std.process.Init) !void {
+            _ = try self.io.concurrent(Self.watchLoop, .{ self, proc });
         }
 
-        fn watchLoop(self: *Self, args: std.process.Args) !void {
+        fn watchLoop(self: *Self, proc: std.process.Init) !void {
+            const args = proc.minimal.args;
             const self_path = try std.process.executablePathAlloc(self.io, self.allocator);
             defer self.allocator.free(self_path);
             std.log.warn("♻️ Monitoring Executable File {s}", .{self_path});

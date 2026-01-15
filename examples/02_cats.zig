@@ -36,7 +36,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // run the server
-    try server.rebooter(init.minimal.args);
+    try server.rebooter(init);
     try server.maxFdLimits();
     try server.run();
 }

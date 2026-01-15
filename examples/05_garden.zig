@@ -27,7 +27,7 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     // create the server
-    var server = try HTTPServer.from(init, .{ .port = PORT }, app);
+    var server = try HTTPServer.from(init, .{ .port = PORT, .log = .{ .theme = .newwave } }, app);
     defer server.deinit();
     std.log.info("listening http://localhost:{d}", .{PORT});
 
@@ -41,8 +41,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     try server.maxFdLimits();
-    try server.rebooter(init.minimal.args);
-    _ = try Io.concurrent(io, updateLoop, .{app});
+    try server.rebooter(init);
     try server.run();
 }
 

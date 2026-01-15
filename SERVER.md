@@ -23,7 +23,7 @@ server.deinit()
 // run the server
 server.run()
 // tell the whole app to reload and reboot whenever the program is re-compiled
-server.rebooter(args)
+server.rebooter(process_init)
 // boost Process FD limits to the max, useful for stress testing
 server.maxFdLimits()
 ```
@@ -527,7 +527,7 @@ The server detects this, and sends a `window.location.reload()` to the browser.
 To compliment the browser hotreload, the Zig Datastar SDK provides a utility function you can add 
 to your server code, to automatically reload the server executable whenever it is recompiled.
 
-You can achieve this by adding a call to `server.rebooter(args)` during startup :
+You can achieve this by adding a call to `server.rebooter(process_init)` during startup :
 
 ```zig
     var server = try HTTPServer.initIp6(io, allocator, PORT);
@@ -542,7 +542,7 @@ You can achieve this by adding a call to `server.rebooter(args)` during startup 
     r.post("/hotreload/:id", hotreloadHandler); // Turn on the Hotreloader
 
     // Tell the server to reboot on recompile
-    try server.rebooter(init.minimal.Args); // <---- ADD THIS
+    try server.rebooter(init); // <---- ADD THIS
 
     std.debug.print("Server listening on http://localhost:{}\n", .{PORT});
     try server.run();

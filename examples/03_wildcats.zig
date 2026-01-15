@@ -44,7 +44,7 @@ pub fn main(init: std.process.Init) !void {
 
     // run the server
     try server.maxFdLimits();
-    try server.rebooter(init.minimal.args);
+    try server.rebooter(init);
     try server.run();
 }
 

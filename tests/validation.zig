@@ -12,7 +12,7 @@ const PORT = 7331;
 pub fn main(init: std.process.Init) !void {
     var server = try HTTPServer.from(init, .{ .port = PORT });
     defer server.deinit();
-    try server.rebooter(init.minimal.args);
+    try server.rebooter(init);
 
     var r = server.router;
 

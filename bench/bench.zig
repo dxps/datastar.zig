@@ -7,7 +7,7 @@ pub fn main(init: std.process.Init) !void {
     var server = try datastar.Server().from(init, .{ .port = 8090, .log = .{ .theme = .monochrom } });
     defer server.deinit();
     try server.maxFdLimits();
-    try server.rebooter(init.minimal.args);
+    try server.rebooter(init);
 
     {
         const r = server.router;
