@@ -3,19 +3,11 @@ const datastar = @import("datastar");
 const HTTPRequest = datastar.HTTPRequest;
 const Io = std.Io;
 
-pub fn main() !void {
-    const allocator = std.heap.smp_allocator;
-
-    // Evented isnt really working yet, so stick with Threaded IO for now
-    // Once Evented is functional, its just a 1 line change here to swap
-    // from heavy threads to coroutines
-    var threaded: Io.Threaded = .init(allocator, .{ .stack_size = 256 * 1024 });
-    defer threaded.deinit();
-    threaded.setAsyncLimit(std.Io.Limit.limited64(10));
-    const io = threaded.io();
-
-    var server = try datastar.Server(void).initIp6(io, allocator, 8090);
+pub fn main(init: std.process.Init) !void {
+    var server = try datastar.Server().from(init, .{ .port = 8090, .log = .{ .theme = .monochrom } });
     defer server.deinit();
+    try server.maxFdLimits();
+    try server.rebooter(init.minimal.args);
 
     {
         const r = server.router;
@@ -41,10 +33,6 @@ pub fn handlerLogged(http: *HTTPRequest) !void {
 }
 
 pub fn sseHandler(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
-    defer {
-        std.debug.print("Zig SSE handler took {} microseconds\n", .{t1.read() / std.time.ns_per_ms});
-    }
     var sse = try http.NewSSE();
     defer sse.close();
 
