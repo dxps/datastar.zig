@@ -443,7 +443,8 @@ fn code(http: *HTTPRequest) !void {
 
 fn mimeTest(http: *HTTPRequest) !void {
     const filename = http.params.get("filename") orelse return error.NoFilename;
-    var w = std.Io.Writer.Allocating.init(http.arena);
-    try w.writer.print("examples/assets/mime-tests/{s}", .{filename});
-    return http.sendFile(w.written(), null);
+    return http.sendFile(
+        try std.fmt.allocPrint(http.arena, "examples/assets/mime-tests/{s}", .{filename}),
+        null,
+    );
 }

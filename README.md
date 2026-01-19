@@ -378,14 +378,22 @@ http.io      - which std.Io interface is in use when calling this handler
 http.arena   - a per-request arena for doing allocations in your handler
 http.params  - the route parameters used in the request
 
-// Functions
-http.html(data) !void            // output data as text/html
-http.htmlFmt(format, args) !void // print formatted output data as text/html
-http.json(data) !void            // convert data to JSON and output as application/json
-http.query() ![]const u8         // get the query string for this request 
-http.readSignals(T) !T           // read the signals from the request into struct of given type
-http.setCookie(name, value)      // set a cookie with the response
-http.getCookie(name)             // get a cookie from the requesnt
+// Sending content in the response
+http.data(content, mime_type) !void // output content with given mime type
+http.html(content) !void            // output content as text/html
+http.htmlFmt(format, args) !void    // print formatted output content as text/html
+http.json(content) !void            // convert content to JSON and output as application/json
+
+// Dealing with query params
+http.query() ![]const u8            // get the query string for this request 
+http.readSignals(T) !T              // read the signals from the request into struct of given type
+http.setCookie(name, value)         // set a cookie with the response
+http.getCookie(name)                // get a cookie from the requesnt
+
+// Sending a file
+// Send the contents of the file, with optional mime_type
+// if mime_type is null, will calculate based on the name extension
+http.sendFile(filename, ?mime_type) !void 
 
 // Route Parameters 
 http.params.get(name) ?[]const u8  // get the value of named parameter :name

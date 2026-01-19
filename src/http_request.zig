@@ -108,12 +108,17 @@ pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const
     return combined;
 }
 
-/// send a response of type text/html with the given data
-pub fn html(self: *HTTPRequest, data: []const u8) !void {
+// send generic data, with given mime type
+pub fn data(self: *HTTPRequest, content: []const u8, mime_type: []const u8) !void {
     try self.req.respond(
-        data,
-        .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "text/html" }}) },
+        content,
+        .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = mime_type }}) },
     );
+}
+
+/// send a response of type text/html with the given data
+pub fn html(self: *HTTPRequest, content: []const u8) !void {
+    try self.data(content, "text/html");
 }
 
 /// send a response of type text/html with a formatted print
@@ -122,15 +127,12 @@ pub fn htmlFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !voi
 }
 
 /// send a response of type text/html with the given data
-pub fn css(self: *HTTPRequest, data: []const u8) !void {
-    try self.req.respond(
-        data,
-        .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "text/css; charset=UTF-8" }}) },
-    );
+pub fn css(self: *HTTPRequest, content: []const u8) !void {
+    try self.data(content, "text/css; charset=UTF-8");
 }
 
 /// send a response of type application/json with the given data
-pub fn json(self: *HTTPRequest, data: anytype) !void {
+pub fn json(self: *HTTPRequest, content: anytype) !void {
     var buffer: [4096]u8 = undefined;
 
     var body_writer = try self.req.respondStreaming(
@@ -142,7 +144,7 @@ pub fn json(self: *HTTPRequest, data: anytype) !void {
         },
     );
 
-    try std.json.Stringify.value(data, .{}, &body_writer.writer);
+    try std.json.Stringify.value(content, .{}, &body_writer.writer);
     try body_writer.end();
 }
 
