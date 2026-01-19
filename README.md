@@ -18,6 +18,9 @@ with being on the bleeding edge !! You have been warned !!
 Status 10-Jan-2026
 - 0.16.0-dev.2040+c475f1fcd ... now includes the "Juicy Main" changes
 
+Status 19-Jan-2026
+0.16.0-dev.2193+fc517bd01 ... now includes http.content(), http.css(), http.sendFile()
+
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 
 # Audience and Scope
