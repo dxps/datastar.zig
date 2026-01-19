@@ -320,3 +320,126 @@ pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8
 
     try body_writer.end();
 }
+
+test "mimeTypeByExtension" {
+    try std.testing.expectEqualStrings("text/html; charset=UTF-8", mimeTypeByExtension("test.html"));
+    try std.testing.expectEqualStrings("text/html; charset=UTF-8", mimeTypeByExtension("test.htm"));
+    try std.testing.expectEqualStrings("text/css; charset=UTF-8", mimeTypeByExtension("style.css"));
+    try std.testing.expectEqualStrings("application/javascript; charset=UTF-8", mimeTypeByExtension("script.js"));
+    try std.testing.expectEqualStrings("application/javascript; charset=UTF-8", mimeTypeByExtension("mod.mjs"));
+    try std.testing.expectEqualStrings("image/png", mimeTypeByExtension("image.png"));
+    try std.testing.expectEqualStrings("image/jpeg", mimeTypeByExtension("photo.jpg"));
+    try std.testing.expectEqualStrings("image/jpeg", mimeTypeByExtension("photo.jpeg"));
+    try std.testing.expectEqualStrings("image/gif", mimeTypeByExtension("anim.gif"));
+    try std.testing.expectEqualStrings("image/svg+xml", mimeTypeByExtension("vector.svg"));
+    try std.testing.expectEqualStrings("image/x-icon", mimeTypeByExtension("favicon.ico"));
+    try std.testing.expectEqualStrings("application/json", mimeTypeByExtension("data.json"));
+    try std.testing.expectEqualStrings("application/wasm", mimeTypeByExtension("app.wasm"));
+    try std.testing.expectEqualStrings("text/plain; charset=UTF-8", mimeTypeByExtension("readme.txt"));
+    try std.testing.expectEqualStrings("application/pdf", mimeTypeByExtension("doc.pdf"));
+    try std.testing.expectEqualStrings("font/woff", mimeTypeByExtension("font.woff"));
+    try std.testing.expectEqualStrings("font/woff2", mimeTypeByExtension("font.woff2"));
+    try std.testing.expectEqualStrings("application/octet-stream", mimeTypeByExtension("unknown.xyz"));
+    try std.testing.expectEqualStrings("application/octet-stream", mimeTypeByExtension("no_extension"));
+}
+
+test "query" {
+    var req = HTTPRequest{
+        .req = undefined,
+        .io = undefined,
+        .arena = std.testing.allocator,
+        .params = .{},
+        .path = "/foo?bar=baz",
+    };
+    try std.testing.expectEqualStrings("bar=baz", req.query().?);
+
+    req.path = "/foo";
+    try std.testing.expect(req.query() == null);
+}
+
+test "setCookie" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var req = HTTPRequest{
+        .req = undefined,
+        .io = undefined,
+        .arena = arena.allocator(),
+        .params = .{},
+    };
+
+    try req.setCookie("foo", "bar");
+    try std.testing.expect(req.extra_headers != null);
+    try std.testing.expectEqual(1, req.extra_headers.?.len);
+    try std.testing.expectEqualStrings("set-cookie", req.extra_headers.?[0].name);
+    try std.testing.expect(std.mem.startsWith(u8, req.extra_headers.?[0].value, "foo=bar;"));
+}
+
+test "mergeHeaders" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    var req = HTTPRequest{
+        .req = undefined,
+        .io = undefined,
+        .arena = arena.allocator(),
+        .params = .{},
+    };
+
+    const extra = &[_]std.http.Header{
+        .{ .name = "X-Test", .value = "True" },
+    };
+
+    const merged = try req.mergeHeaders(extra);
+
+    // defaults (2) + extra (1) = 3
+    // defaults are Connection and X-Powered-By
+    try std.testing.expectEqual(3, merged.len);
+
+    var found_test_header = false;
+
+    for (merged) |h| {
+        if (std.mem.eql(u8, h.name, "X-Test") and std.mem.eql(u8, h.value, "True")) {
+            found_test_header = true;
+        }
+    }
+
+    try std.testing.expect(found_test_header);
+}
+
+test "readSignals GET" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+
+    const Head = @TypeOf(@as(std.http.Server.Request, undefined).head);
+
+    const head = Head{
+        .method = .GET,
+        .target = "/?datastar=%7B%22foo%22%3A%22bar%22%7D", // {"foo":"bar"} url encoded
+        .version = .@"HTTP/1.1",
+        .expect = null,
+        .content_type = null,
+        .content_length = null,
+        .transfer_encoding = .none,
+        .transfer_compression = .identity,
+        .keep_alive = false,
+    };
+
+    var server_req = std.http.Server.Request{
+        .server = undefined,
+        .head = head,
+        .head_buffer = undefined,
+    };
+
+    var req = HTTPRequest{
+        .req = &server_req,
+        .io = undefined,
+        .arena = arena.allocator(),
+        .params = .{},
+        .path = "/?datastar=%7B%22foo%22%3A%22bar%22%7D",
+    };
+
+    const SignalType = struct { foo: []const u8 };
+    const sig = try req.readSignals(SignalType);
+    try std.testing.expectEqualStrings("bar", sig.foo);
+}
