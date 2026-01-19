@@ -21,20 +21,28 @@ fn getCountAndIncrement() usize {
     return update_count;
 }
 
-const HTTPServer = datastar.Server(void);
-
 var hotreload_id: u64 = 0;
 
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
+fn setHotReload(io: Io) !void {
     const now = try std.Io.Clock.real.now(io);
     prng.seed(@intCast(now.toMilliseconds()));
     hotreload_id = prng.random().int(u64);
     std.log.debug("Hotreload ID {}", .{hotreload_id});
+}
 
-    var server = try HTTPServer.initIp6(io, allocator, PORT);
+pub fn main(init: std.process.Init) !void {
+    try setHotReload(init.io);
+
+    var server = try HTTPServer.from(init, .{
+        .port = PORT,
+        .log = .{
+            .format = .terminal,
+            .theme = .monochrom,
+            .level = .payload,
+            .fast_us = 80,
+            .slow_ms = 200,
+        },
+    });
     defer server.deinit();
     std.log.info("Server listening on http://localhost:{}", .{PORT});
 
@@ -441,7 +449,11 @@ fn code(http: *HTTPRequest) !void {
 fn mimeTest(http: *HTTPRequest) !void {
     const filename = http.params.get("filename") orelse return error.NoFilename;
     return http.sendFile(
-        try std.fmt.allocPrint(http.arena, "examples/assets/mime-tests/{s}", .{filename}),
+        try std.fmt.allocPrint(
+            http.arena,
+            "examples/assets/mime-tests/{s}",
+            .{filename},
+        ),
         null,
     );
 }

@@ -130,6 +130,7 @@ pub fn ServerCtx(comptime Context: type) type {
             while (true) {
                 defer _ = arena.reset(.retain_capacity);
 
+                var server = std.http.Server.init(&reader.interface, &writer.interface);
                 var request = server.receiveHead() catch break;
 
                 var http = HTTPRequest{
@@ -139,6 +140,8 @@ pub fn ServerCtx(comptime Context: type) type {
                     .params = .{},
                     .path = arena.allocator().dupe(u8, request.head.target) catch return error.Canceled,
                     .method = request.head.method,
+                    .timer = std.time.Timer.start() catch undefined, // live dangerously !
+                    .log = self.log,
                 };
 
                 self.router.dispatch(self.ctx, &http) catch return;

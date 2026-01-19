@@ -277,6 +277,12 @@ pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8 {
     return null;
 }
 
+/// Wrapper around raw std.http.Server.Request.respond, where we save the status
+pub fn respond(http: *HTTPRequest, content: []const u8, status: std.http.Status) std.http.Server.Request.ExpectContinueError!void {
+    http.status = status;
+    return http.req.respond(content, .{ .status = status });
+}
+
 /// return the mime type based on the file extension
 pub fn mimeTypeByExtension(filename: []const u8) []const u8 {
     const ext = std.fs.path.extension(filename);

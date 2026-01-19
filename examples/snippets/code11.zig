@@ -1,7 +1,17 @@
 == File handler with variable mime type ==
 
-r.get("/examples/assets/mime-tests/:filename");
+// Note the URL is just 'mime' + filename
+r.get("/mime/:filename");
 
 fn mimeTest(http: *HTTPRequest) !void {
-    return http.sendFile(http.path, null);
+    const filename = http.params.get("filename") orelse return error.NoFilename;
+    return http.sendFile(
+        try std.fmt.allocPrint(
+            http.arena,
+            // we translate this to a filename under this dir
+            "examples/assets/mime-tests/{s}",
+            .{filename},
+        ),
+        null,
+    );
 }
