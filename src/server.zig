@@ -629,13 +629,13 @@ test "urlDecode handles mixed encoding" {
 }
 
 test "Server type can be created with void context" {
-    const ServerVoid = Server(void);
+    const ServerVoid = ServerCtx(void);
     const type_info = @typeInfo(ServerVoid);
     try std.testing.expect(type_info == .@"struct");
 }
 
 test "Server type can be created with App context" {
-    const ServerApp = Server(*TestApp);
+    const ServerApp = ServerCtx(*TestApp);
     const type_info = @typeInfo(ServerApp);
     try std.testing.expect(type_info == .@"struct");
 }
