@@ -164,9 +164,9 @@ pub fn json(self: *HTTPRequest, content: anytype) !void {
 }
 
 /// extract the full query params from the request
-pub fn query(self: HTTPRequest) ![]const u8 {
+pub fn query(self: HTTPRequest) ?[]const u8 {
     const target = self.path;
-    const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
+    const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return null;
     return target[query_idx + 1 ..];
 }
 

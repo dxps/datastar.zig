@@ -66,7 +66,7 @@ const TestEventAttribute = struct {
 
 fn runTest(http: *HTTPRequest) !void {
     // Debug the input packet
-    switch (http.req.head.method) {
+    switch (http.method) {
         .GET => {
             std.debug.print("GET {s}\n", .{http.path});
             // const query = try http.query();

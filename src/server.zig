@@ -324,21 +324,21 @@ pub fn Router(comptime Context: type) type {
                     .none => {},
                     .path, .full => {
                         std.log.info("{t:<6} {s:<40} {:>8} μs", .{
-                            http.req.head.method,
+                            http.method,
                             path_only,
                             t1.read() / std.time.ns_per_us,
                         });
 
                         if (http.req_payload) |payload| {
                             if (self.log_level == .full) {
-                                std.log.debug(" > {t} Payload: {s}", .{ http.req.head.method, payload });
+                                std.log.debug(" > {t} Payload: {s}", .{ http.method, payload });
                             }
                         }
                     },
                 }
             }
 
-            const method_idx = @intFromEnum(http.req.head.method);
+            const method_idx = @intFromEnum(http.method);
             if (current.handlers[method_idx]) |h| {
                 // TODO - in here, if we call any non-GET handler, we should
                 // check that the handler actually sent a response
