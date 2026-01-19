@@ -385,6 +385,10 @@ http.data(content, mime_type) !void // output content with given mime type
 http.html(content) !void            // output content as text/html
 http.htmlFmt(format, args) !void    // print formatted output content as text/html
 http.json(content) !void            // convert content to JSON and output as application/json
+http.css(content) !void             // output content as text/css
+http.cssFmt(format, args) !void     // print formatted output content as text/css
+http.js(content) !void              // output content as application/javascript
+http.jsFmt(format, args) !void      // print formatted output content as application/javascript
 
 // Dealing with query params
 http.query() ?[]const u8            // get the query string for this request or null if not present
