@@ -109,7 +109,7 @@ pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const
 }
 
 // send generic data, with given mime type
-pub fn data(self: *HTTPRequest, content: []const u8, mime_type: []const u8) !void {
+pub fn sendData(self: *HTTPRequest, content: []const u8, mime_type: []const u8) !void {
     try self.req.respond(
         content,
         .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = mime_type }}) },
@@ -118,7 +118,7 @@ pub fn data(self: *HTTPRequest, content: []const u8, mime_type: []const u8) !voi
 
 /// send a response of type text/html with the given data
 pub fn html(self: *HTTPRequest, content: []const u8) !void {
-    try self.data(content, "text/html");
+    try self.sendData(content, "text/html");
 }
 
 /// send a response of type text/html with a formatted print
@@ -128,7 +128,7 @@ pub fn htmlFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !voi
 
 /// send a response of type text/html with the given data
 pub fn css(self: *HTTPRequest, content: []const u8) !void {
-    try self.data(content, "text/css; charset=UTF-8");
+    try self.sendData(content, "text/css; charset=UTF-8");
 }
 
 /// send a response of type application/json with the given data
