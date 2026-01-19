@@ -9,7 +9,7 @@ const PORT = 8081;
 var update_count: usize = 1;
 var update_mutex: std.Thread.Mutex = .{};
 
-var prng = std.Random.DefaultPrng.init(0);
+var prng: std.Random.DefaultPrng = .init(0);
 
 fn getCountAndIncrement() usize {
     update_mutex.lock();
@@ -22,11 +22,16 @@ fn getCountAndIncrement() usize {
 
 const HTTPServer = datastar.Server(void);
 
-var hotreload_id: i64 = 0;
+var hotreload_id: u64 = 0;
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
+
+    const now = try std.Io.Clock.real.now(io);
+    prng.seed(@intCast(now.toMilliseconds()));
+    hotreload_id = prng.random().int(u64);
+    std.log.debug("Hotreload ID {}", .{hotreload_id});
 
     var server = try HTTPServer.initIp6(io, allocator, PORT);
     defer server.deinit();
@@ -53,6 +58,8 @@ pub fn main(init: std.process.Init) !void {
         r.get("/mathml-morph", mathMorph);
         r.get("/code/:snip", code);
 
+        r.get("/mime/:filename", mimeTest);
+
         // Reboot on recompile, and hot reload the client
         r.post("/hotreload/:id", hotreload);
     }
@@ -68,15 +75,15 @@ fn index(http: *HTTPRequest) !void {
 }
 
 fn styleCss(http: *HTTPRequest) !void {
-    return http.html(@embedFile("style.css"));
+    return http.css(@embedFile("style.css"));
 }
 
 fn hotreload(http: *HTTPRequest) !void {
-    const id = http.params.getInt(i64, "id") orelse 0;
+    const id = http.params.getInt(u64, "id") orelse 0;
     var sse = try http.NewSSESync();
     defer sse.close();
     if (id != hotreload_id) {
-        std.log.warn("Client is stale - reload them", .{});
+        std.log.warn("Client is stale {} != {} - reload them", .{ id, hotreload_id });
         try sse.executeScript("window.location.reload()", .{});
     }
 
@@ -261,6 +268,7 @@ const snippets = [_][]const u8{
     @embedFile("snippets/code8.zig"),
     @embedFile("snippets/code9.zig"),
     @embedFile("snippets/code10.zig"),
+    @embedFile("snippets/code11.zig"),
 };
 
 fn executeScript(http: *HTTPRequest) !void {
@@ -300,10 +308,6 @@ fn executeScript(http: *HTTPRequest) !void {
 
 // output some morphs to the SVG elements using svg namespace
 fn svgMorph(http: *HTTPRequest) !void {
-    var seed: u64 = undefined;
-    std.crypto.random.bytes(std.mem.asBytes(&seed));
-    prng.seed(seed);
-
     const opt = try http.readSignals(struct { svgMorph: usize = 1 });
     var sse = try http.NewSSESync();
     defer sse.close();
@@ -367,10 +371,6 @@ const mathMLs = [_][]const u8{
 
 // output some random MathML
 fn mathMorph(http: *HTTPRequest) !void {
-    var seed: u64 = undefined;
-    std.crypto.random.bytes(std.mem.asBytes(&seed));
-    prng.seed(seed);
-
     const opt = try http.readSignals(struct { mathmlMorph: usize = 1 });
     var sse = try http.NewSSESync();
     defer sse.close();
@@ -439,12 +439,11 @@ fn code(http: *HTTPRequest) !void {
     }
 
     try w.writeAll("</code></pre>\n");
+}
 
-    // return try req.respond(sse.body(), .{
-    //     .extra_headers = &.{
-    //         .{ .name = "content-type", .value = "text/event-stream; charset=UTF-8" },
-    //         .{ .name = "cache-control", .value = "no-cache" },
-    //     },
-    //     .wait_for_body = true,
-    // });
+fn mimeTest(http: *HTTPRequest) !void {
+    const filename = http.params.get("filename") orelse return error.NoFilename;
+    var w = std.Io.Writer.Allocating.init(http.arena);
+    try w.writer.print("examples/assets/mime-tests/{s}", .{filename});
+    return http.sendFile(w.written(), null);
 }

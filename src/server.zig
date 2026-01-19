@@ -75,7 +75,7 @@ pub fn Server(comptime Context: type) type {
             }
         }
 
-        fn handleConnection(self: *Self, conn: Io.net.Stream) void {
+        fn handleConnection(self: *Self, conn: Io.net.Stream) Io.Cancelable!void {
             defer conn.close(self.io);
 
             var read_buffer: [4096]u8 = undefined;
@@ -92,16 +92,15 @@ pub fn Server(comptime Context: type) type {
             while (true) {
                 defer _ = arena.reset(.retain_capacity);
 
-                var request = server.receiveHead() catch |err| {
-                    if (err == error.HttpConnectionClosing) break;
-                    return;
-                };
+                var request = server.receiveHead() catch break;
 
                 var http = HTTPRequest{
                     .io = self.io,
                     .req = &request,
                     .arena = arena.allocator(),
                     .params = .{},
+                    .path = arena.allocator().dupe(u8, request.head.target) catch return error.Canceled,
+                    .method = request.head.method,
                 };
 
                 self.router.dispatch(self.ctx, &http) catch return;
@@ -291,7 +290,7 @@ pub fn Router(comptime Context: type) type {
             var params = Params{};
             var current = self.root;
 
-            const target = http.req.head.target;
+            const target = http.path;
             const query_index = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
             const path_only = target[0..query_index];
 
@@ -315,7 +314,7 @@ pub fn Router(comptime Context: type) type {
             }
 
             http.params = params;
-            var path = http.req.head.target;
+            var path = http.path;
             const q = std.mem.indexOfScalar(u8, path, '?') orelse path.len;
             path = path[0..q];
 
@@ -346,13 +345,13 @@ pub fn Router(comptime Context: type) type {
                 // otherwise mock up a response for this
                 if (Context == void) {
                     return h(http) catch |err| {
-                        std.log.err("{} - {t} {s}", .{ err, http.req.head.method, http.req.head.target });
+                        std.log.err("{} - {t} {s}", .{ err, http.method, http.path });
                         return http.req.respond("Error", .{ .status = .internal_server_error });
                     };
                 } else {
                     if (ctx) |c| {
                         return h(c, http) catch |err| {
-                            std.log.err("{} - {t} {s}", .{ err, http.req.head.method, http.req.head.target });
+                            std.log.err("{} - {t} {s}", .{ err, http.method, http.path });
                             return http.req.respond("Error", .{ .status = .internal_server_error });
                         };
                     }

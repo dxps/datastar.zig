@@ -20,8 +20,8 @@
         Example<br>v1.0.0-RC7</span>
       <a href="http://data-star.dev" target="_">
         <img class="w-12 sm:w-24"
-          src="https://camo.githubusercontent.com/41305ad22f4e9a19afaee1aaa6d51dd6392894aa80bd3423633b89baccde8d38/68747470733a2f2f646174612d737461722e6465762f7374617469632f696d616765732f726f636b65742d353132783531322e706e67">
-      </a>
+          src="https://data-star.dev/cdn-cgi/image/format=auto,width=32/static/images/rocket-animated-1d781383a0d7cbb1eb575806abeec107c8a915806fb55ee19e4e33e8632c75e5.gif"
+          </a>
     </div>
     <div class="avatar">
       <div class="w-32 rounded-full">
@@ -54,6 +54,8 @@
       href="#svg-morph-page" title="Svg Morph">9<br><small>SVG</small></a>
     <a class="text-xl text-center p-4 rounded-md bg-blue-400 border-solid border-gray-700 border-2"
       href="#mathml-morph-page" title="MathML Morph">10<br><small>MathML</small></a>
+    <a class="text-xl text-center p-4 rounded-md bg-blue-400 border-solid border-gray-700 border-2"
+      href="#sendfile-page" title="File API">11<br><small>FileAPI</small></a>
   </div>
   <!--carousel container-->
   <div class="carousel rounded-box w-screen h-3/4">
@@ -350,8 +352,64 @@
           </div>
         </details>
       </div>
-    </div> // end svg morph
-  </div>
+    </div> <!-- end svg morph -->
+    <div id="sendfile-page" class="carousel-item w-full h-full flex justify-center items-center">
+      <div class="card w-10/12 bg-slate-300 card-lg shadow-sm m-auto">
+        <div class="card-body">
+          <h2 class="card-title text-neutral">File API</h2>
+
+          <h4>Images</h4>
+          <div class="grid grid-cols-2">
+            <img class="h-20" src="/mime/test.gif" />
+            <img class="h-20" src="/mime/test.jpg" />
+            <img class="h-20" src="/mime/test.png" />
+            <img class="h-20" src="/mime/test.svg" />
+          </div>
+
+          <h4>Files</h4>
+          <div class="grid grid-cols-4 gap-2">
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.gif','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.gif</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.jpg','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.jpg</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.png','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.png</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.svg','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.svg</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.css','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.css</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.html','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.html</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.ico','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.ico</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.js','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.js</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.json','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.json</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.pdf','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.pdf</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.txt','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.txt</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.wasm','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.wasm</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.woff','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.woff</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.woff2','_blank','width=600,height=800,scrollbars=yes,resizable=yes')">test.woff2</button>
+            <button class="btn btn-primary"
+              data-on:click="window.open('/mime/test.unknown','_blank')">test.unknown</button>
+          </div>
+
+          <details class="collapse bg-base-100 border-base-300 border">
+            <summary class="collapse-title font-semibold">Show Code</summary>
+            <div class="collapse-content text-sm" data-init="@get('/code/11')">
+              <div id='code-11' class='mockup-code w-full'></div>
+            </div>
+          </details>
+        </div>
+      </div>
+    </div> <!-- end file api -->
+  </div> <!-- end carousel -->
   <!-- Resync if the server restarts -->
   <pre data-init="@post('/hotreload/{[hotreload_id]}')"></pre>
 </body>

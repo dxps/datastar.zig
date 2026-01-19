@@ -68,16 +68,16 @@ fn runTest(http: *HTTPRequest) !void {
     // Debug the input packet
     switch (http.req.head.method) {
         .GET => {
-            std.debug.print("GET {s}\n", .{http.req.head.target});
+            std.debug.print("GET {s}\n", .{http.path});
             // const query = try http.query();
             // std.debug.print("GET params:\n{s}\n", .{query});
         },
         .POST => {
-            std.debug.print("GET {s} {?} bytes\n", .{ http.req.head.target, http.req.head.content_length });
+            std.debug.print("GET {s} {?} bytes\n", .{ http.path, http.req.head.content_length });
             _ = http.req.head.content_length orelse return error.MissingContentLength;
         },
         else => {
-            std.debug.print("Invalid test HTTP method {t}\n", .{http.req.head.method});
+            std.debug.print("Invalid test HTTP method {t}\n", .{http.method});
             try http.req.respond("Invalid test HTTP method", .{ .status = .bad_request });
             return;
         },

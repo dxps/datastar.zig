@@ -14,6 +14,8 @@ req: *std.http.Server.Request,
 io: Io,
 arena: std.mem.Allocator,
 params: Params,
+path: []const u8 = "",
+method: std.http.Method = .GET,
 extra_headers: ?[]const std.http.Header = null,
 detach: bool = false, // detached is set if there is any SSE acting on this request - which stops it looping looking for more requests on the same connection
 req_payload: ?[]const u8 = null,
@@ -119,6 +121,14 @@ pub fn htmlFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !voi
     try self.html(try std.fmt.allocPrint(self.arena, fmt, args));
 }
 
+/// send a response of type text/html with the given data
+pub fn css(self: *HTTPRequest, data: []const u8) !void {
+    try self.req.respond(
+        data,
+        .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = "text/css; charset=UTF-8" }}) },
+    );
+}
+
 /// send a response of type application/json with the given data
 pub fn json(self: *HTTPRequest, data: anytype) !void {
     var buffer: [4096]u8 = undefined;
@@ -138,7 +148,7 @@ pub fn json(self: *HTTPRequest, data: anytype) !void {
 
 /// extract the full query params from the request
 pub fn query(self: HTTPRequest) ![]const u8 {
-    const target = self.req.head.target;
+    const target = self.path;
     const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
     return target[query_idx + 1 ..];
 }
@@ -150,7 +160,7 @@ pub fn readSignals(self: *HTTPRequest, comptime T: type) !T {
 
     switch (req.head.method) {
         .GET => {
-            const target = req.head.target;
+            const target = self.path;
             const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
             const query_string = target[query_idx + 1 ..];
 
@@ -227,4 +237,69 @@ pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8 {
         }
     }
     return null;
+}
+
+/// return the mime type based on the file extension
+pub fn mimeTypeByExtension(filename: []const u8) []const u8 {
+    const ext = std.fs.path.extension(filename);
+    if (std.ascii.eqlIgnoreCase(ext, ".html") or std.ascii.eqlIgnoreCase(ext, ".htm")) return "text/html; charset=UTF-8";
+    if (std.ascii.eqlIgnoreCase(ext, ".css")) return "text/css; charset=UTF-8";
+    if (std.ascii.eqlIgnoreCase(ext, ".js") or std.ascii.eqlIgnoreCase(ext, ".mjs")) return "application/javascript; charset=UTF-8";
+    if (std.ascii.eqlIgnoreCase(ext, ".png")) return "image/png";
+    if (std.ascii.eqlIgnoreCase(ext, ".avif")) return "image/avif";
+    if (std.ascii.eqlIgnoreCase(ext, ".jpg") or std.ascii.eqlIgnoreCase(ext, ".jpeg")) return "image/jpeg";
+    if (std.ascii.eqlIgnoreCase(ext, ".gif")) return "image/gif";
+    if (std.ascii.eqlIgnoreCase(ext, ".svg")) return "image/svg+xml";
+    if (std.ascii.eqlIgnoreCase(ext, ".ico")) return "image/x-icon";
+    if (std.ascii.eqlIgnoreCase(ext, ".json")) return "application/json";
+    if (std.ascii.eqlIgnoreCase(ext, ".wasm")) return "application/wasm";
+    if (std.ascii.eqlIgnoreCase(ext, ".txt")) return "text/plain; charset=UTF-8";
+    if (std.ascii.eqlIgnoreCase(ext, ".pdf")) return "application/pdf";
+    if (std.ascii.eqlIgnoreCase(ext, ".woff")) return "font/woff";
+    if (std.ascii.eqlIgnoreCase(ext, ".woff2")) return "font/woff2";
+    return "application/octet-stream";
+}
+
+/// send a file response - pass a filename, and on optional mime_type
+/// if the mime_type is null, will calculate using the obove function
+pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8) !void {
+    if (filename.len < 1) return error.InvalidFilename;
+    const dir = std.Io.Dir.cwd();
+    var path = filename;
+    if (path[0] == '/') {
+        path = path[1..]; // path must be relative
+    }
+
+    const file = try dir.openFile(self.io, path, .{});
+    defer file.close(self.io);
+
+    const mt = mime: {
+        if (mime_type) |m| break :mime m;
+        break :mime mimeTypeByExtension(path);
+    };
+
+    // stream the source file to the response, in 4k chunks
+    var buffer: [4096]u8 = undefined;
+    var body_writer = try self.req.respondStreaming(
+        &buffer,
+        .{
+            .respond_options = .{
+                .extra_headers = try self.mergeHeaders(&.{
+                    .{ .name = "content-type", .value = mt },
+                }),
+            },
+        },
+    );
+
+    var copy_buffer: [4096]u8 = undefined;
+    const buffers = &[_][]u8{&copy_buffer};
+
+    while (true) {
+        const bytes_read = try file.readStreaming(self.io, buffers);
+        if (bytes_read == 0) break;
+
+        try body_writer.writer.writeAll(copy_buffer[0..bytes_read]);
+    }
+
+    try body_writer.end();
 }
