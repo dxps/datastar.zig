@@ -126,9 +126,24 @@ pub fn htmlFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !voi
     try self.html(try std.fmt.allocPrint(self.arena, fmt, args));
 }
 
-/// send a response of type text/html with the given data
+/// send a response of type text/css with the given data
 pub fn css(self: *HTTPRequest, content: []const u8) !void {
     try self.sendData(content, "text/css; charset=UTF-8");
+}
+
+/// send a response of type text/css with a formatted print
+pub fn cssFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !void {
+    try self.css(try std.fmt.allocPrint(self.arena, fmt, args));
+}
+
+/// send a response of type application/javascript with the given data
+pub fn js(self: *HTTPRequest, content: []const u8) !void {
+    try self.sendData(content, "application/javascript");
+}
+
+/// send a response of type application/javascript with a formatted print
+pub fn jsFmt(self: *HTTPRequest, comptime fmt: []const u8, args: anytype) !void {
+    try self.js(try std.fmt.allocPrint(self.arena, fmt, args));
 }
 
 /// send a response of type application/json with the given data
