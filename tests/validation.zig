@@ -69,8 +69,6 @@ fn runTest(http: *HTTPRequest) !void {
     switch (http.method) {
         .GET => {
             std.debug.print("GET {s}\n", .{http.path});
-            // const query = try http.query();
-            // std.debug.print("GET params:\n{s}\n", .{query});
         },
         .POST => {
             std.debug.print("GET {s} {?} bytes\n", .{ http.path, http.req.head.content_length });

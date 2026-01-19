@@ -387,7 +387,7 @@ http.htmlFmt(format, args) !void    // print formatted output content as text/ht
 http.json(content) !void            // convert content to JSON and output as application/json
 
 // Dealing with query params
-http.query() ![]const u8            // get the query string for this request 
+http.query() ?[]const u8            // get the query string for this request or null if not present
 http.readSignals(T) !T              // read the signals from the request into struct of given type
 http.setCookie(name, value)         // set a cookie with the response
 http.getCookie(name)                // get a cookie from the requesnt
