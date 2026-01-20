@@ -1,6 +1,5 @@
 const std = @import("std");
 const datastar = @import("datastar");
-const HTTPServer = datastar.ServerCtx(*App);
 const HTTPRequest = datastar.HTTPRequest;
 const pubsub = datastar.pubsub;
 
@@ -27,7 +26,13 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     // create the server
-    var server = try HTTPServer.from(init, .{ .port = PORT, .log = .{ .theme = .newwave } }, app);
+    var server = try datastar.HTTPServer.init(init, .{
+        .port = PORT,
+        .watch = true,
+        .max_fd = true,
+        .log = .{ .theme = .newwave },
+    });
+    server.useContext(app);
     defer server.deinit();
     std.log.info("listening http://localhost:{d}", .{PORT});
 
@@ -40,24 +45,22 @@ pub fn main(init: std.process.Init) !void {
         r.get("/assets/:assetname", getAsset);
     }
 
-    try server.maxFdLimits();
-    try server.rebooter(init);
-    _ = try Io.concurrent(io, updateLoop, .{app});
+    try server.concurrent(updateLoop, .{app});
     try server.run();
 }
 
-fn updateLoop(app: *App) !void {
+fn updateLoop(app: *App) Io.Cancelable!void {
     while (true) {
-        try app.updatePlants();
-        try app.io.sleep(.fromSeconds(1), .real);
+        app.updatePlants() catch return error.Canceled;
+        app.io.sleep(.fromSeconds(2), .real) catch return error.Canceled;
     }
 }
 
-fn index(_: *App, http: *HTTPRequest) !void {
+fn index(http: *HTTPRequest) !void {
     try http.html(homepage);
 }
 
-fn getAsset(_: *App, http: *HTTPRequest) !void {
+fn getAsset(http: *HTTPRequest) !void {
     const file_name = http.params.get("assetname") orelse return error.NoAssetName;
     try http.sanitizeFileParam(file_name);
     const static_dir = "examples/assets/fantasy_crops";
@@ -65,7 +68,8 @@ fn getAsset(_: *App, http: *HTTPRequest) !void {
     try http.sendFile(full_path, null);
 }
 
-fn plantList(app: *App, http: *HTTPRequest) !void {
+fn plantList(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
     var sse = try http.NewSSESync();
 
     try app.pushAll(&sse);
@@ -110,7 +114,8 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
     std.log.info("no more events ...", .{});
 }
 
-fn postPlantEffect(app: *App, http: *HTTPRequest) !void {
+fn postPlantEffect(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
     app.mutex.lock();
     defer app.mutex.unlock();
 

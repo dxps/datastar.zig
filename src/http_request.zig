@@ -22,6 +22,7 @@ const HTTPRequest = @This();
 ///   - status code for the response
 req: *std.http.Server.Request,
 io: Io,
+ctx: ?*anyopaque = null,
 arena: std.mem.Allocator,
 params: Params,
 path: []const u8 = "",
@@ -33,6 +34,12 @@ req_payload: ?[]const u8 = null,
 status: std.http.Status = .ok,
 timer: std.time.Timer = undefined,
 log: Log = .{},
+
+/// Return the context as the given type
+pub fn getCtx(http: *HTTPRequest, T: type) T {
+    const ptr = http.ctx orelse std.debug.panic("Attempted to access null context", .{});
+    return @ptrCast(@alignCast(ptr));
+}
 
 /// Return a new SSE object for a simple 1 shot response
 pub fn NewSSE(http: *HTTPRequest) !SSE {

@@ -19,6 +19,7 @@ with being on the bleeding edge !! You have been warned !!
 | :--- | :--- | :--- |
 | **10-Jan-2026** | `0.16.0-dev.2040+c475f1fcd` | **Juicy Main** changes (Entry point & std refactor) |
 | **19-Jan-2026** | `0.16.0-dev.2193+fc517bd01` | `http.content()`, `http.css()`, `http.sendFile()` |
+| **20-Jan-2026** | `0.16.0-dev.2193+fc517bd01` | `Breaking Changes` - Removed ServerCtx - use type erased ctx in http request |
 
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 
@@ -86,19 +87,18 @@ with Datastar specific SSE events.
 
 const std = @import("std");
 const datastar = @import("datastar");
-const HTTPServer = datastar.Server();
+const HTTPServer = datastar.HTTPServer;
 const HTTPRequest = datastar.HTTPRequest;
 
-const ADDRESS = "0.0.0.0"; // all IP addresses
 const PORT = 8080; 
 
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
+pub fn main(process_init: std.process.Init) !void {
+    const allocator = process_init.gpa;
+    const io = process_init.io;
 
-    var server = try HTTPServer.init(io, allocator, ADDRESS, PORT, .path);
+    var server = try HTTPServer.init(process_init, .{.port = PORT});
     defer server.deinit();
-    std.debug.print("Server listening on http://{s}:{}\n", .{ADDRESS, PORT});
+    std.debug.print("Server listening on http://{s}:{}\n", .{"localhost", PORT});
 
     // Setup all the routes
     const r = server.router;
@@ -265,6 +265,8 @@ Current version passes all tests.
 
 ```zig
 const datastar = @import("datastar");
+const HTTPServer = datastar.HTTPServer;
+const HTTPRequest = datastar.HTTPRequest;
 
 // read signals either from GET or POST
 http.readSignals(comptime T: type) !T  // for use with the built in HTTPServer, where http = *HTTPRequest
@@ -303,31 +305,41 @@ sse.executeScriptWriter(script_options) *std.Io.Writer
 ## Cheatsheet of all HTTPServer functions
 
 ```zig
-// Using a Generic Server 
-// handler signatures are handler(HTTPRequest)
-Server()
-server.init(io, allocator, address, port, log_level) !Server
-// create a server listening on all interfaces with both IPv4 and IPv6
-server.initIp6(io, allocator, port, log_level) !Server
+// Config struct for HTTPServer
+pub const Config = struct {
+    address: ?[]const u8 = null, // if null, will listen on all addresses
+    port: u16, // must be provided
+    log: Log = .{},
+    io: ?Io = null,
+    allocator: ?Allocator = null,
+    watch: bool = false, // set to true to reboot on the executable file changing
+};
 
-// Generate a Server type that takes a type as a global app context
-// handler signatures are handler(Context, HTTPRequest)
-ServerCtx(T)
-server.init(io, allocator, address, port, context, log_level) !Server
-server.initIp6(io, allocator, port, context, log_level) !Server
+// Create a new server
+server.init(process_init, config) !*HTTPServer
 
-// Server log levels.  Default = .path unless you set it otherwise
-// .none - no extra logs generated
-// .path - print (METHOD /path STATUS TIME) for each request
-// .payload - print POST/PUT/etc payload bodies
-// .signals - print GET Signals payloads as well
-// server instance cleanup
+// Assign a global context to pass to all requests
+server.useCtx(T: type) T
 
+// eg - if you have a struct 'app' of type App that holds your global state
+// server.useCtx(&app)  will store this reference and add it to all requests
+
+
+// Server Log Config - see the section on logging
+// You can configure a number of params such as the level of logging
+// the type of logging (json / zon / text mode)
+// color theme for logging
+// additional info such as session data, etc
+
+// cleanup the server
 server.deinit()
+
 // run the server
 server.run()
-// tell the whole app to reload and reboot whenever the program is re-compiled
-server.rebooter(process_init)
+
+// spawn a concurrent task grouped with the server
+server.concurrent(fn_ptr, args)
+
 // boost Process FD limits to the max, useful for stress testing
 server.maxFdLimits()
 ```

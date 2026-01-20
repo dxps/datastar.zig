@@ -2,236 +2,245 @@ const std = @import("std");
 const pubsub = @import("pubsub");
 const datastar = @import("datastar.zig");
 const Log = @import("log.zig");
-const router_module = @import("router.zig");
-const Router = router_module.Router;
-const RouteHandler = router_module.RouteHandler;
+const Router = @import("router.zig");
+const RouteHandler = Router.RouteHandler;
 
 const builtin = @import("builtin");
 const posix = std.posix; // probably gonna get deprecated soon ?
 
-const HTTPRequest = @import("http_request.zig");
+pub const HTTPRequest = @import("http_request.zig");
 const Params = @import("params.zig");
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
+const Server = @This();
+
+io: Io,
+allocator: Allocator,
+process_init: std.process.Init,
+arena: std.heap.ArenaAllocator,
+server: Io.net.Server = undefined,
+router: *Router,
+ctx: ?*anyopaque = null,
+log: Log = undefined,
+middleware: ?*Middleware = null,
+watch: bool = false,
+fd_limit: u64 = 0,
+max_fd: bool = false,
+group: std.Io.Group = .init,
+
+// Config params for creating a server
 pub const Config = struct {
     address: ?[]const u8 = null,
     port: u16, // must be provided
     log: Log = .{},
     io: ?Io = null,
     allocator: ?Allocator = null,
+    watch: bool = false,
+    fd_limit: u64 = 0,
+    max_fd: bool = false,
 };
 
-pub fn Server() type {
-    return ServerCtx(void);
+/// init a Server from a juicy main init, and a config
+pub fn init(process_init: std.process.Init, config: Config) !*Server {
+    const io = config.io orelse process_init.io;
+    const allocator = config.allocator orelse process_init.gpa;
+
+    // if address is not defined / null - then listen on all addresses
+    const address = if (config.address) |addr|
+        try Io.net.IpAddress.parseIp4(addr, config.port)
+    else
+        try Io.net.IpAddress.parseIp6("::", config.port);
+
+    var self: *Server = try allocator.create(Server);
+    errdefer allocator.destroy(self);
+
+    self.* = .{
+        .process_init = process_init,
+        .server = try address.listen(io, .{ .reuse_address = true }),
+        .router = undefined,
+        .log = config.log,
+        .io = io,
+        .allocator = allocator,
+        .arena = std.heap.ArenaAllocator.init(allocator),
+        .watch = config.watch,
+        .fd_limit = config.fd_limit,
+        .max_fd = config.max_fd,
+    };
+    errdefer self.arena.deinit();
+    self.router = try Router.init(self.arena.allocator());
+    return self;
 }
 
-pub fn ServerCtx(comptime Context: type) type {
-    return struct {
-        const Self = @This();
+pub fn useContext(self: *Server, ctx: *anyopaque) void {
+    self.ctx = ctx;
+}
 
-        io: Io,
-        allocator: Allocator,
-        server: Io.net.Server = undefined,
-        router: *Router(Context),
-        ctx: ?Context = null,
-        log: Log = undefined,
+pub fn deinit(self: *Server) void {
+    self.arena.deinit();
+}
 
-        /// for Server() without std.process.init
-        fn initVoid(config: Config) !Self {
-            std.debug.assert(config.io != null);
-            std.debug.assert(config.allocator != null);
+pub fn concurrent(self: *Server, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) Io.ConcurrentError!void {
+    return self.group.concurrent(self.io, function, args);
+}
 
-            // if address is not defined / null - then listen on all addresses
-            const address = if (config.address) |addr|
-                try Io.net.IpAddress.parseIp4(addr, config.port)
-            else
-                try Io.net.IpAddress.parseIp6("::", config.port);
+pub fn run(self: *Server) !void {
+    self.maxFdLimits() catch |err| std.log.err("Failed to raise FD limits {}", .{err});
+    defer self.group.cancel(self.io);
 
-            const io = config.io.?;
-            const allocator = config.allocator.?;
+    if (self.watch) {
+        self.group.concurrent(self.io, Server.watchLoop, .{self}) catch |err| {
+            std.log.err("Failed to init watch loop for rebooting {}", .{err});
+        };
+    }
 
-            return .{
-                .server = try address.listen(io, .{ .reuse_address = true }),
-                .router = try Router(Context).init(allocator),
-                .log = config.log,
-                .io = io,
-                .allocator = allocator,
+    // create global app instance
+    while (true) {
+        const conn = try self.server.accept(self.io);
+        self.group.concurrent(self.io, handleConnection, .{ self, conn }) catch |err| {
+            std.log.err("spawn handler error {}\n", .{err});
+            conn.close(self.io);
+            // group.cancel(self.io);
+            continue; // ah well failed - try another one, dont exit the loop
+        };
+    }
+}
+
+fn handleConnection(self: *Server, conn: Io.net.Stream) Io.Cancelable!void {
+    defer conn.close(self.io);
+
+    var read_buffer: [4096]u8 = undefined;
+    var write_buffer: [4096]u8 = undefined;
+
+    var reader = conn.reader(self.io, &read_buffer);
+    var writer = conn.writer(self.io, &write_buffer);
+
+    var arena: std.heap.ArenaAllocator = .init(self.allocator);
+    defer arena.deinit();
+
+    while (true) {
+        defer _ = arena.reset(.retain_capacity);
+
+        var server = std.http.Server.init(&reader.interface, &writer.interface);
+        var request = server.receiveHead() catch break;
+
+        var http = HTTPRequest{
+            .io = self.io,
+            .ctx = self.ctx,
+            .req = &request,
+            .arena = arena.allocator(),
+            .params = .{},
+            .path = arena.allocator().dupe(u8, request.head.target) catch return error.Canceled,
+            .method = request.head.method,
+            .timer = std.time.Timer.start() catch undefined, // live dangerously !
+            .log = self.log,
+        };
+
+        self.router.dispatch(&http) catch return;
+
+        // Anything asking for a Sync SSE connection will detach the request from this inner loop
+        // this is because any SSE created over this connection will be treated as the last action
+        // in this connection. The trigger for the browser is text/event-stream + chunked encoding
+        if (http.detach) break;
+    }
+}
+
+/// watch the executable for changes, and if found, then reboot the server
+/// only intended for local development !!!
+fn watchLoop(self: *Server) Io.Cancelable!void {
+    const args = self.process_init.minimal.args;
+    const self_path = std.process.executablePathAlloc(self.io, self.allocator) catch |err| {
+        std.log.err("WatchLoop terminating - failed to get path of executable {}", .{err});
+        return error.Canceled;
+    };
+    defer self.allocator.free(self_path);
+    std.log.warn("♻️ Monitoring Executable File {s}", .{self_path});
+
+    var initial_inode: u64 = 0;
+    var initial_mtime: Io.Timestamp = .zero;
+
+    // wait around till the inital inode is available
+    while (true) {
+        const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
+            std.log.err("WatchLoop error - Path {s} cannot stat: {}", .{ self_path, err });
+            self.io.sleep(.fromSeconds(1), .real) catch {};
+            continue;
+        };
+        initial_inode = stat.inode;
+        initial_mtime = stat.mtime;
+        break;
+    }
+
+    while (true) {
+        self.io.sleep(.fromSeconds(2), .real) catch |err| {
+            std.log.err("WatchLoop terminating - failed to sleep for 2 seconds ?? {}", .{err});
+            return error.Canceled;
+        };
+
+        const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
+            std.log.err("Path {s} cannot stat: {}", .{ self_path, err });
+            continue;
+        };
+
+        const inode_changed = (stat.inode != initial_inode);
+        const mtime_changed = (stat.mtime.toMilliseconds() > initial_mtime.toMilliseconds());
+
+        if (inode_changed or mtime_changed) {
+            std.log.warn("♻️ Binary Changed - Reboot", .{});
+
+            const argv = self.allocator.alloc([]const u8, args.vector.len) catch |err| {
+                std.log.err("WatchLoop terminating - failed to allocate argv {}", .{err});
+                return error.Canceled;
             };
-        }
-
-        /// for Server(Context) without std.process.init
-        fn initCtx(ctx: Context, config: Config) !Self {
-            var server = try initVoid(config);
-            server.ctx = ctx;
-            return server;
-        }
-
-        /// for Server() with std.process.init
-        fn fromVoid(process: std.process.Init, config: Config) !Self {
-            const io = config.io orelse process.io;
-            const allocator = config.allocator orelse process.gpa;
-
-            // if address is not defined / null - then listen on all addresses
-            const address = if (config.address) |addr|
-                try Io.net.IpAddress.parseIp4(addr, config.port)
-            else
-                try Io.net.IpAddress.parseIp6("::", config.port);
-
-            return .{
-                .server = try address.listen(io, .{ .reuse_address = true }),
-                .router = try Router(Context).init(allocator),
-                .log = config.log,
-                .io = io,
-                .allocator = allocator,
-            };
-        }
-
-        /// for Server(Context) with std.process.init
-        fn fromCtx(process: std.process.Init, config: Config, ctx: Context) !Self {
-            var server = try fromVoid(process, config);
-            server.ctx = ctx;
-            return server;
-        }
-
-        pub const init = if (Context == void) initVoid else initCtx;
-        pub const from = if (Context == void) fromVoid else fromCtx;
-
-        pub fn deinit(self: *Self) void {
-            self.server.deinit(self.io);
-        }
-
-        pub fn run(self: *Self) !void {
-            var group: std.Io.Group = .init;
-            defer group.cancel(self.io);
-
-            // create global app instance
-            while (true) {
-                const conn = try self.server.accept(self.io);
-                group.concurrent(self.io, handleConnection, .{ self, conn }) catch |err| {
-                    std.log.err("spawn handler error {}\n", .{err});
-                    conn.close(self.io);
-                    // group.cancel(self.io);
-                    continue; // ah well failed - try another one, dont exit the loop
-                };
-            }
-        }
-
-        fn handleConnection(self: *Self, conn: Io.net.Stream) Io.Cancelable!void {
-            defer conn.close(self.io);
-
-            var read_buffer: [4096]u8 = undefined;
-            var write_buffer: [4096]u8 = undefined;
-
-            var reader = conn.reader(self.io, &read_buffer);
-            var writer = conn.writer(self.io, &write_buffer);
-
-            var arena: std.heap.ArenaAllocator = .init(self.allocator);
-            defer arena.deinit();
-
-            while (true) {
-                defer _ = arena.reset(.retain_capacity);
-
-                var server = std.http.Server.init(&reader.interface, &writer.interface);
-                var request = server.receiveHead() catch break;
-
-                var http = HTTPRequest{
-                    .io = self.io,
-                    .req = &request,
-                    .arena = arena.allocator(),
-                    .params = .{},
-                    .path = arena.allocator().dupe(u8, request.head.target) catch return error.Canceled,
-                    .method = request.head.method,
-                    .timer = std.time.Timer.start() catch undefined, // live dangerously !
-                    .log = self.log,
-                };
-
-                self.router.dispatch(self.ctx, &http) catch return;
-
-                // Anything asking for a Sync SSE connection will detach the request from this inner loop
-                // this is because any SSE created over this connection will be treated as the last action
-                // in this connection. The trigger for the browser is text/event-stream + chunked encoding
-                if (http.detach) break;
-            }
-        }
-
-        pub fn rebooter(self: *Self, proc: std.process.Init) !void {
-            _ = try self.io.concurrent(Self.watchLoop, .{ self, proc });
-        }
-
-        fn watchLoop(self: *Self, proc: std.process.Init) !void {
-            const args = proc.minimal.args;
-            const self_path = try std.process.executablePathAlloc(self.io, self.allocator);
-            defer self.allocator.free(self_path);
-            std.log.warn("♻️ Monitoring Executable File {s}", .{self_path});
-
-            var initial_inode: u64 = 0;
-            var initial_mtime: Io.Timestamp = .zero;
-
-            // wait around till the inital inode is available
-            while (true) {
-                const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
-                    std.log.err("Path {s} cannot stat: {}", .{ self_path, err });
-                    continue;
-                };
-                initial_inode = stat.inode;
-                initial_mtime = stat.mtime;
-                break;
+            defer self.allocator.free(argv);
+            for (args.vector, 0..) |arg, i| {
+                argv[i] = std.mem.span(arg);
             }
 
-            while (true) {
-                try self.io.sleep(.fromSeconds(2), .real);
+            const replace_error = std.process.replace(self.io, .{ .argv = argv });
+            // if we get here - it means we failed to replace
+            std.log.err("WatchLoop terminating - failed to replace executable {}", .{replace_error});
+            return error.Canceled;
+        }
+    }
+}
 
-                const stat = std.Io.Dir.cwd().statFile(self.io, self_path, .{}) catch |err| {
-                    std.log.err("Path {s} cannot stat: {}", .{ self_path, err });
-                    continue;
-                };
-
-                const inode_changed = (stat.inode != initial_inode);
-                const mtime_changed = (stat.mtime.toMilliseconds() > initial_mtime.toMilliseconds());
-
-                if (inode_changed or mtime_changed) {
-                    std.log.warn("♻️ Binary Changed - Reboot", .{});
-
-                    const argv = try self.allocator.alloc([]const u8, args.vector.len);
-                    defer self.allocator.free(argv);
-                    for (args.vector, 0..) |arg, i| {
-                        argv[i] = std.mem.span(arg);
-                    }
-
-                    return std.process.replace(self.io, .{ .argv = argv });
+fn maxFdLimits(self: *Server) !void {
+    if (self.fd_limit == 0 and !self.max_fd) return;
+    switch (builtin.os.tag) {
+        // TODO - I think Linux might do this differently ?
+        // need to check on linux box before releasing this
+        .macos, .linux, .freebsd, .openbsd => {
+            // Get current limits
+            var limit = try posix.getrlimit(.NOFILE);
+            if (limit.cur == limit.max) {
+                std.log.warn("🚀 Process FD limit currently at MAX capacity {} - no change", .{limit.max});
+                if (self.max_fd) return;
+            }
+            if (self.max_fd) {
+                std.log.warn("🚀 Process FD limit currently at {} - raise to MAX {}", .{ limit.cur, limit.max });
+            } else {
+                // set a specific limit
+                if (limit.cur == self.fd_limit) {
+                    std.log.warn("🚀 Process FD limit currently at {} - no change", .{limit.cur});
+                } else {
+                    std.log.warn("🚀 Process FD limit currently at {} - change to {}", .{ limit.cur, self.fd_limit });
                 }
             }
-        }
 
-        pub fn maxFdLimits(_: *Self) !void {
-            switch (builtin.os.tag) {
-                .macos, .linux, .freebsd, .openbsd => {
-                    // Get current limits
-                    var limit = try posix.getrlimit(.NOFILE);
-                    if (limit.cur == limit.max) {
-                        std.log.warn("🚀 Process FD limit currently at MAX capacity {}", .{limit.max});
-                    } else {
-                        std.log.warn("🚀 Process FD limit Current={}, raise to {}", .{ limit.cur, limit.max });
-                    }
+            // Set Soft Limit (cur) to the Hard Limit (max)
+            // On macOS, 'max' is typically 10,240 by default.
+            limit.cur = if (self.max_fd) limit.max else self.fd_limit;
 
-                    // Set Soft Limit (cur) to the Hard Limit (max)
-                    // On macOS, 'max' is typically 10,240 by default.
-                    limit.cur = limit.max;
-
-                    posix.setrlimit(.NOFILE, limit) catch |err| {
-                        std.log.err("🚀 Failed to bump limits: {}", .{err});
-                        return err;
-                    };
-                },
-                else => return,
-            }
-        }
-    };
+            posix.setrlimit(.NOFILE, limit) catch |err| {
+                std.log.err("🚀 Failed to bump limits: {}", .{err});
+                return err;
+            };
+        },
+        else => return,
+    }
 }
-
-middleware: ?*Middleware = null,
 
 // Middleware functions take a HTTPRequest, and return
 // - err if there is an error, no more processing
@@ -433,20 +442,4 @@ test "urlDecode handles mixed encoding" {
 
     const decoded = try datastar.urlDecode(arena.allocator(), "foo+bar%3Dbaz");
     try std.testing.expectEqualStrings("foo bar=baz", decoded);
-}
-
-test "Server type can be created with void context" {
-    const ServerVoid = ServerCtx(void);
-    const type_info = @typeInfo(ServerVoid);
-    try std.testing.expect(type_info == .@"struct");
-
-    const ServerNotSpecified = Server();
-    const type_info_not_specified = @typeInfo(ServerNotSpecified);
-    try std.testing.expect(type_info_not_specified == .@"struct");
-}
-
-test "Server type can be created with App context" {
-    const ServerApp = ServerCtx(*TestApp);
-    const type_info = @typeInfo(ServerApp);
-    try std.testing.expect(type_info == .@"struct");
 }

@@ -1,6 +1,5 @@
 const std = @import("std");
 const datastar = @import("datastar");
-const HTTPServer = datastar.ServerCtx(*App);
 const HTTPRequest = datastar.HTTPRequest;
 
 const pubsub = datastar.pubsub;
@@ -19,16 +18,17 @@ const MQSchema = union(enum) {
 // This example demonstrates a simple auction site that uses
 // SSE and pub/sub to have realtime updates of bids on a Cat auction
 // with session based preferences
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
+pub fn main(process_init: std.process.Init) !void {
+    const allocator = process_init.gpa;
+    const io = process_init.io;
 
     // Create the global app instance
     var app = try App.init(io, allocator);
     defer app.deinit();
 
     // create the server
-    var server = try HTTPServer.from(init, .{ .port = PORT }, app);
+    var server = try datastar.HTTPServer.init(process_init, .{ .port = PORT, .watch = true, .max_fd = true });
+    server.useContext(app);
     defer server.deinit();
     std.log.info("listening http://localhost:{d}", .{PORT});
 
@@ -43,12 +43,12 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // run the server
-    try server.maxFdLimits();
-    try server.rebooter(init);
     try server.run();
 }
 
-fn index(app: *App, http: *HTTPRequest) !void {
+fn index(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
+
     // ensure they have a cookie
     const session_string = http.getCookie("session") orelse blk: {
         const new_session_string = try std.fmt.allocPrint(http.arena, "{}", .{try app.newSessionID()});
@@ -59,13 +59,14 @@ fn index(app: *App, http: *HTTPRequest) !void {
     try http.html(@embedFile("03_index.html"));
 }
 
-fn styleCss(_: *App, http: *HTTPRequest) !void {
-    return http.html(@embedFile("style.css"));
+fn styleCss(http: *HTTPRequest) !void {
+    return http.css(@embedFile("style.css"));
 }
 
-fn catsList(app: *App, http: *HTTPRequest) !void {
+fn catsList(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
     const session = http.getCookie("session") orelse return error.NoCookie;
-    const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
+    const sort_prefs: SessionPrefs = app.sessions.get(session) orelse .{ .sort = .id };
     std.log.info("catList for session {s} with prefs {t}", .{ session, sort_prefs.sort });
 
     var sse = try http.NewSSESync();
@@ -90,22 +91,29 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
                 .cats => app.pushCatList(&sse, session) catch |err|
                     return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
                         http.method,
-                        http.path,
+                        http.getPathOnly(),
                         err,
                     }),
                 .prefs => app.pushAll(&sse, session) catch |err|
                     return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
                         http.method,
-                        http.path,
+                        http.getPathOnly(),
                         err,
                     }),
             },
-            .timeout => try sse.keepalive(),
+            .timeout => sse.keepalive() catch |err|
+                return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                    http.method,
+                    http.getPathOnly(),
+                    err,
+                }),
         }
     }
 }
 
-fn postBid(app: *App, http: *HTTPRequest) !void {
+fn postBid(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
+
     // get the numeric cat_id from the request params POST /bid/:id
     const cat_id = http.params.getInt(usize, "id") orelse return error.InvalidCat;
 
@@ -131,7 +139,10 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
     try http.json(.{ .bid = "ok", .id = cat_id, .value = new_bid });
 }
 
-fn postSort(app: *App, http: *HTTPRequest) !void {
+fn postSort(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
+    std.log.debug("app = {x}{} http.ctx = {x}{}\n", .{ @intFromPtr(app), @TypeOf(app), @intFromPtr(http.ctx.?), @TypeOf(http.ctx) });
+
     const session = http.getCookie("session") orelse return error.NoSession;
     const filter_id: pubsub.FilterId = .fromSlice(session);
 

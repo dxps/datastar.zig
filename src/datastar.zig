@@ -4,9 +4,8 @@ pub const pubsub = @import("pubsub");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-pub const Server = @import("server.zig").Server;
-pub const ServerCtx = @import("server.zig").ServerCtx;
-pub const HTTPRequest = @import("http_request.zig");
+pub const HTTPServer = @import("server.zig");
+pub const HTTPRequest = HTTPServer.HTTPRequest;
 pub const Params = @import("params.zig");
 
 pub const Command = enum {
@@ -244,7 +243,7 @@ pub fn readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Se
             while (it.next()) |pair| {
                 if (std.mem.startsWith(u8, pair, "datastar=")) {
                     const encoded_val = pair["datastar=".len..];
-                    const decoded = try Server.urlDecode(arena, encoded_val);
+                    const decoded = try HTTPServer.urlDecode(arena, encoded_val);
 
                     return std.json.parseFromSliceLeaky(
                         T,

@@ -29,25 +29,35 @@ fast_us: u64 = 20, // 20us
 pub fn info(log: Log, http: *HTTPRequest) void {
     const elapsed: u64 = http.timer.read();
     const c = log.theme.get();
-    std.log.info("{s}{s}{s} {s}{}{s} {s}{t:<6}{s} {s:<60} {s}{:>8}{s} μs", .{
-        c.timestampColor(),
-        formatTimeAlloc(http),
-        c.reset,
+    const payload_size: []const u8 = switch (http.method) {
+        .PUT, .PATCH, .POST, .DELETE => if (http.req.head.content_length) |l|
+            // No semicolon here: the result of allocPrint flows to the if
+            std.fmt.allocPrint(http.arena, " ({} bytes)", .{l}) catch ""
+        else
+            "", // Result of the else flows to the if
 
-        c.statusColor(http.status),
-        @intFromEnum(http.status),
-        c.reset,
+        else => "",
+    };
 
-        c.methodColor(http.method),
-        http.method,
-        c.reset,
-
-        http.getPathOnly(),
-
-        c.timerColor(log.fast_us, log.slow_ms, elapsed, http.detach),
-        @divTrunc(elapsed, 1_000),
-        c.reset,
-    });
+    std.log.info(
+        "{s}{s}{s} {s}{}{s} {s}{t:<6}{s} {s:<60} {s}{:>8}{s} μs{s}",
+        .{
+            c.timestampColor(),
+            formatTimeAlloc(http),
+            c.reset,
+            c.statusColor(http.status),
+            @intFromEnum(http.status),
+            c.reset,
+            c.methodColor(http.method),
+            http.method,
+            c.reset,
+            http.getPathOnly(),
+            c.timerColor(log.fast_us, log.slow_ms, elapsed, http.detach),
+            @divTrunc(elapsed, 1_000),
+            c.reset,
+            payload_size,
+        },
+    );
 }
 
 pub fn debug(_: Log, comptime fmt: []const u8, args: anytype) void {

@@ -1,6 +1,5 @@
 const std = @import("std");
 const datastar = @import("datastar");
-const HTTPServer = datastar.Server();
 const HTTPRequest = datastar.HTTPRequest;
 
 const Allocator = std.mem.Allocator;
@@ -10,15 +9,15 @@ const PORT = 7331;
 
 // Run Datastar validation test suite backend in Zig
 pub fn main(init: std.process.Init) !void {
-    var server = try HTTPServer.from(init, .{ .port = PORT });
+    var server = try datastar.HTTPServer.init(init, .{ .port = PORT, .watch = true, .max_fd = true });
     defer server.deinit();
-    try server.rebooter(init);
 
-    var r = server.router;
-
-    r.get("/", index);
-    r.get("/test", runTest); // get will use the query params
-    r.post("/test", runTest); // post will use the request body
+    {
+        var r = server.router;
+        r.get("/", index);
+        r.get("/test", runTest); // get will use the query params
+        r.post("/test", runTest); // post will use the request body
+    }
 
     try server.run();
 }
@@ -66,13 +65,7 @@ const TestEventAttribute = struct {
 fn runTest(http: *HTTPRequest) !void {
     // Debug the input packet
     switch (http.method) {
-        .GET => {
-            std.debug.print("GET {s}\n", .{http.path});
-        },
-        .POST => {
-            std.debug.print("GET {s} {?} bytes\n", .{ http.path, http.req.head.content_length });
-            _ = http.req.head.content_length orelse return error.MissingContentLength;
-        },
+        .GET, .POST => {},
         else => {
             std.debug.print("Invalid test HTTP method {t}\n", .{http.method});
             try http.req.respond("Invalid test HTTP method", .{ .status = .bad_request });

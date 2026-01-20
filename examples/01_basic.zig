@@ -1,6 +1,5 @@
 const std = @import("std");
 const datastar = @import("datastar");
-const HTTPServer = datastar.Server();
 const HTTPRequest = datastar.HTTPRequest;
 
 const Io = std.Io;
@@ -33,7 +32,7 @@ fn setHotReload(io: Io) !void {
 pub fn main(init: std.process.Init) !void {
     try setHotReload(init.io);
 
-    var server = try HTTPServer.from(init, .{
+    var server = try datastar.HTTPServer.init(init, .{
         .port = PORT,
         .log = .{
             .format = .terminal,
@@ -42,12 +41,11 @@ pub fn main(init: std.process.Init) !void {
             .fast_us = 80,
             .slow_ms = 200,
         },
+        .watch = true,
+        .max_fd = true,
     });
     defer server.deinit();
     std.log.info("Server listening on http://localhost:{}", .{PORT});
-
-    // Max out the Process FD Quota, useful for stress testing
-    try server.maxFdLimits();
 
     {
         const r = server.router;
@@ -73,7 +71,6 @@ pub fn main(init: std.process.Init) !void {
         r.post("/hotreload/:id", hotreload);
     }
 
-    try server.rebooter(init);
     try server.run();
 }
 

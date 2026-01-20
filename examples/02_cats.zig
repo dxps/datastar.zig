@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const datastar = @import("datastar");
-const HTTPServer = datastar.ServerCtx(*App);
 const HTTPRequest = datastar.HTTPRequest;
 
 const pubsub = datastar.pubsub;
@@ -22,7 +21,8 @@ pub fn main(init: std.process.Init) !void {
     defer app.deinit();
 
     // create the server
-    var server = try HTTPServer.from(init, .{ .port = PORT }, app);
+    var server = try datastar.HTTPServer.init(init, .{ .port = PORT, .watch = true, .fd_limit = 2048 });
+    server.useContext(app);
     defer server.deinit();
     std.log.info("listening http://localhost:{d}", .{PORT});
 
@@ -36,20 +36,19 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // run the server
-    try server.rebooter(init);
-    try server.maxFdLimits();
     try server.run();
 }
 
-fn index(_: *App, http: *HTTPRequest) !void {
+fn index(http: *HTTPRequest) !void {
     try http.html(@embedFile("02_index.html"));
 }
 
-fn styleCss(_: *App, http: *HTTPRequest) !void {
-    return http.html(@embedFile("style.css"));
+fn styleCss(http: *HTTPRequest) !void {
+    return http.css(@embedFile("style.css"));
 }
 
-fn catsList(app: *App, http: *HTTPRequest) !void {
+fn catsList(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
     var sse = try http.NewSSESync();
     defer sse.close();
     try pushCatList(app, &sse);
@@ -100,7 +99,8 @@ fn pushCatList(app: *App, sse: *datastar.SSE) !void {
     try sse.flush();
 }
 
-fn postBid(app: *App, http: *HTTPRequest) !void {
+fn postBid(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
     app.mutex.lock();
     defer {
         app.mutex.unlock();
