@@ -636,6 +636,10 @@ test "Server type can be created with void context" {
     const ServerVoid = ServerCtx(void);
     const type_info = @typeInfo(ServerVoid);
     try std.testing.expect(type_info == .@"struct");
+
+    const ServerNotSpecified = Server();
+    const type_info_not_specified = @typeInfo(ServerNotSpecified);
+    try std.testing.expect(type_info_not_specified == .@"struct");
 }
 
 test "Server type can be created with App context" {
