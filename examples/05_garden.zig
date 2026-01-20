@@ -94,7 +94,10 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
             },
             .timeout => {
                 std.log.warn("timeout", .{});
-                try sse.keepalive();
+                sse.keepalive() catch |err| {
+                    std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{ http.method, http.getPathOnly(), err });
+                    return;
+                };
             },
         }
     }
