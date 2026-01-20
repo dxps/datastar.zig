@@ -183,10 +183,8 @@ pub fn json(self: *HTTPRequest, content: anytype) !void {
 
 /// get path without the query params
 pub fn getPathOnly(self: HTTPRequest) []const u8 {
-    if (std.mem.indexOfScalar(u8, self.path, '?')) |i| {
-        return self.path[0..i];
-    }
-    return self.path;
+    const query_idx = std.mem.indexOfScalar(u8, self.path, '?') orelse return self.path;
+    return self.path[0..query_idx];
 }
 
 /// get just the path without the query params
@@ -197,9 +195,8 @@ pub fn getPathOnly(self: HTTPRequest) []const u8 {
 
 /// extract the full query params from the request
 pub fn query(self: HTTPRequest) ?[]const u8 {
-    const target = self.path;
-    const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return null;
-    return target[query_idx + 1 ..];
+    const query_idx = std.mem.indexOfScalar(u8, self.path, '?') orelse return null;
+    return self.path[query_idx + 1 ..];
 }
 
 /// read Datastar signals from the request into the given struct type, return an instance of this struct

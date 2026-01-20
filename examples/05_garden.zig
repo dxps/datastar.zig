@@ -82,17 +82,13 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
             .msg => |m| {
                 std.log.info("Event: {}", .{m.topic});
                 switch (m.topic) {
-                    .plants => {
-                        app.pushPlantList(&sse) catch |err| {
-                            std.log.warn("Connection dropped for {t} {s}: {}", .{ http.method, http.getPathOnly(), err });
-                            return;
-                        };
+                    .plants => app.pushPlantList(&sse) catch |err| {
+                        std.log.warn("Connection dropped for {t} {s} : {}", .{ http.method, http.getPathOnly(), err });
+                        return;
                     },
-                    .crops => {
-                        app.pushCropCounts(&sse) catch |err| {
-                            std.log.warn("Connection dropped for {t} {s}: {}", .{ http.method, http.getPathOnly(), err });
-                            return;
-                        };
+                    .crops => app.pushCropCounts(&sse) catch |err| {
+                        std.log.warn("Connection dropped for {t} {s} : {}", .{ http.method, http.getPathOnly(), err });
+                        return;
                     },
                 }
             },
