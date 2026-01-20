@@ -31,8 +31,6 @@ pub fn main(init: std.process.Init) !void {
     server.setContext(app);
     defer server.deinit();
 
-    _ = try Io.concurrent(io, updateLoop, .{app});
-
     // create routes
     {
         const r = server.router;
@@ -46,6 +44,7 @@ pub fn main(init: std.process.Init) !void {
     std.log.info("listening http://localhost:{d}", .{PORT});
     try server.maxFdLimits();
     try server.rebooter(init.minimal.args);
+    _ = try Io.concurrent(io, updateLoop, .{app});
     try server.run();
 }
 
@@ -71,20 +70,7 @@ fn getAsset(_: *App, http: *HTTPRequest) !void {
     }
     const static_dir = "./examples/assets/fantasy_crops";
     const fullPath = try std.fmt.allocPrint(http.arena, "{s}/{s}", .{ static_dir, file_name });
-    const file = try std.Io.Dir.cwd().openFile(http.io, fullPath, .{});
-    defer file.close(http.io);
-    const file_size = try file.length(http.io);
-    const buffer = try http.arena.alloc(u8, file_size);
-    _ = try file.readPositionalAll(http.io, buffer, 0);
-
-    // TODO - make some decent helpers for these content-type responses !!
-    try http.req.respond(
-        buffer,
-        .{ .extra_headers = &.{.{
-            .name = "content-type",
-            .value = getContentType(fullPath),
-        }} },
-    );
+    try http.sendFile(fullPath, null);
 }
 
 fn getContentType(filename: []const u8) []const u8 {
@@ -114,10 +100,16 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
                 std.log.info("Event: {}", .{m.topic});
                 switch (m.topic) {
                     .plants => {
-                        try app.pushPlantList(&sse);
+                        app.pushPlantList(&sse) catch |err| {
+                            std.log.warn("Connection dropped for {t} {s}: {}", .{ http.method, http.getPathOnly(), err });
+                            return;
+                        };
                     },
                     .crops => {
-                        try app.pushCropCounts(&sse);
+                        app.pushCropCounts(&sse) catch |err| {
+                            std.log.warn("Connection dropped for {t} {s}: {}", .{ http.method, http.getPathOnly(), err });
+                            return;
+                        };
                     },
                 }
             },

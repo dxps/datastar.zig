@@ -379,6 +379,11 @@ http.req     - the *std.http.Server.Request value
 http.io      - which std.Io interface is in use when calling this handler
 http.arena   - a per-request arena for doing allocations in your handler
 http.params  - the route parameters used in the request
+http.path    - the full URL path including query params
+http.method  - the HTTP method
+
+// Get just the URL path without Query params
+http.getPathOnly() []const u8
 
 // Sending content in the response
 http.data(content, mime_type) !void // output content with given mime type
