@@ -62,8 +62,18 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
 
     while (try mq.next()) |event| {
         switch (event) {
-            .msg => try pushCatList(app, &sse),
-            .timeout => try sse.keepalive(),
+            .msg => pushCatList(app, &sse) catch |err|
+                return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                    http.method,
+                    http.path,
+                    err,
+                }),
+            .timeout => sse.keepalive() catch |err|
+                return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                    http.method,
+                    http.path,
+                    err,
+                }),
         }
     }
 }

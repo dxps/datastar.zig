@@ -82,22 +82,28 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
             .msg => |m| {
                 std.log.info("Event: {}", .{m.topic});
                 switch (m.topic) {
-                    .plants => app.pushPlantList(&sse) catch |err| {
-                        std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{ http.method, http.getPathOnly(), err });
-                        return;
-                    },
-                    .crops => app.pushCropCounts(&sse) catch |err| {
-                        std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{ http.method, http.getPathOnly(), err });
-                        return;
-                    },
+                    .plants => app.pushPlantList(&sse) catch |err|
+                        return std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{
+                            http.method,
+                            http.getPathOnly(),
+                            err,
+                        }),
+                    .crops => app.pushCropCounts(&sse) catch |err|
+                        return std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{
+                            http.method,
+                            http.getPathOnly(),
+                            err,
+                        }),
                 }
             },
             .timeout => {
                 std.log.warn("timeout", .{});
-                sse.keepalive() catch |err| {
-                    std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{ http.method, http.getPathOnly(), err });
-                    return;
-                };
+                sse.keepalive() catch |err|
+                    return std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{
+                        http.method,
+                        http.getPathOnly(),
+                        err,
+                    });
             },
         }
     }

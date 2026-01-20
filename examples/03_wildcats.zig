@@ -87,8 +87,18 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
         std.log.info("Session {s} got event {f}", .{ session, event });
         switch (event) {
             .msg => |m| switch (m.topic) {
-                .cats => try app.pushCatList(&sse, session),
-                .prefs => try app.pushAll(&sse, session),
+                .cats => app.pushCatList(&sse, session) catch |err|
+                    return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                        http.method,
+                        http.path,
+                        err,
+                    }),
+                .prefs => app.pushAll(&sse, session) catch |err|
+                    return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                        http.method,
+                        http.path,
+                        err,
+                    }),
             },
             .timeout => try sse.keepalive(),
         }
