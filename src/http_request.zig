@@ -181,12 +181,6 @@ pub fn json(self: *HTTPRequest, content: anytype) !void {
     self.replied = true;
 }
 
-/// get path without the query params
-pub fn getPathOnly(self: HTTPRequest) []const u8 {
-    const query_idx = std.mem.indexOfScalar(u8, self.path, '?') orelse return self.path;
-    return self.path[0..query_idx];
-}
-
 /// get just the path without the query params
 pub fn getPathOnly(self: HTTPRequest) []const u8 {
     const query_idx = std.mem.indexOfScalar(u8, self.path, '?') orelse return self.path;

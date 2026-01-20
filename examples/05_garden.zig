@@ -83,11 +83,11 @@ fn plantList(app: *App, http: *HTTPRequest) !void {
                 std.log.info("Event: {}", .{m.topic});
                 switch (m.topic) {
                     .plants => app.pushPlantList(&sse) catch |err| {
-                        std.log.warn("Connection dropped for {t} {s} : {}", .{ http.method, http.getPathOnly(), err });
+                        std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{ http.method, http.getPathOnly(), err });
                         return;
                     },
                     .crops => app.pushCropCounts(&sse) catch |err| {
-                        std.log.warn("Connection dropped for {t} {s} : {}", .{ http.method, http.getPathOnly(), err });
+                        std.log.warn("Connection dropped for {t} {s} : {} - expect auto reconnect", .{ http.method, http.getPathOnly(), err });
                         return;
                     },
                 }
