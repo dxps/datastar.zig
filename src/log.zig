@@ -42,7 +42,7 @@ pub fn info(log: Log, http: *HTTPRequest) void {
         http.method,
         c.reset,
 
-        getPathOnly(http),
+        http.getPathOnly(),
 
         c.timerColor(log.fast_us, log.slow_ms, elapsed, http.detach),
         @divTrunc(elapsed, 1_000),
@@ -80,14 +80,6 @@ pub fn signals(_: Log, http: *HTTPRequest) void {
 
 pub fn err(_: Log, http: *HTTPRequest, error_value: anyerror, status: std.http.Status) void {
     std.log.err("{} {t} - {t} {s}", .{ error_value, status, http.method, http.path });
-}
-
-fn getPathOnly(http: *HTTPRequest) []const u8 {
-    const target = http.path;
-    if (std.mem.findScalar(u8, target, '?')) |i| {
-        return target[0..i];
-    }
-    return target;
 }
 
 /// Returns a formatted string "YYYY-MM-DD HH:MM:SS.UUUUUU"

@@ -125,6 +125,7 @@ pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const
 
 // send generic data, with given mime type
 pub fn sendData(self: *HTTPRequest, content: []const u8, mime_type: []const u8) !void {
+    self.replied = true;
     try self.req.respond(
         content,
         .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = mime_type }}) },
@@ -176,6 +177,16 @@ pub fn json(self: *HTTPRequest, content: anytype) !void {
 
     try std.json.Stringify.value(content, .{}, &body_writer.writer);
     try body_writer.end();
+
+    self.replied = true;
+}
+
+/// get path without the query params
+pub fn getPathOnly(self: HTTPRequest) []const u8 {
+    if (std.mem.indexOfScalar(u8, self.path, '?')) |i| {
+        return self.path[0..i];
+    }
+    return self.path;
 }
 
 /// get just the path without the query params
@@ -304,17 +315,35 @@ pub fn mimeTypeByExtension(filename: []const u8) []const u8 {
     return "application/octet-stream";
 }
 
+/// use this function to sanity check the contents of a filename param
+pub fn sanitizeFileParam(_: *HTTPRequest, filename: []const u8) !void {
+    if (filename.len < 1 or filename.len > 256 or
+        std.mem.indexOfScalar(u8, filename, 0) != null or
+        std.mem.indexOf(u8, filename, "..") != null or
+        std.mem.indexOf(u8, filename, "/") != null or
+        std.mem.indexOf(u8, filename, "\\") != null)
+    {
+        return error.InvalidFilename;
+    }
+}
+
 /// send a file response - pass a filename, and on optional mime_type
 /// if the mime_type is null, will calculate using the obove function
 pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8) !void {
     if (filename.len < 1) return error.InvalidFilename;
+
+    // sanitize the filename to prevent path traversal attacks
+
     const dir = std.Io.Dir.cwd();
     var path = filename;
     if (path[0] == '/') {
         path = path[1..]; // path must be relative
     }
 
-    const file = try dir.openFile(self.io, path, .{});
+    const file = dir.openFile(self.io, path, .{}) catch |err| {
+        std.log.err("failed to open file {s} : {}", .{ path, err });
+        return err;
+    };
     defer file.close(self.io);
 
     const mt = mime: {
@@ -334,6 +363,7 @@ pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8
             },
         },
     );
+    self.replied = true;
 
     var copy_buffer: [4096]u8 = undefined;
     const buffers = &[_][]u8{&copy_buffer};

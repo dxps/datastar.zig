@@ -42,6 +42,7 @@ pub fn main(init: std.process.Init) !void {
 
     try server.maxFdLimits();
     try server.rebooter(init);
+    _ = try Io.concurrent(io, updateLoop, .{app});
     try server.run();
 }
 
@@ -58,29 +59,14 @@ fn index(_: *App, http: *HTTPRequest) !void {
 
 fn getAsset(_: *App, http: *HTTPRequest) !void {
     const file_name = http.params.get("assetname") orelse return error.NoAssetName;
-    // Validate filename - prevent path traversal
-    if (std.mem.indexOf(u8, file_name, "..") != null or
-        std.mem.indexOf(u8, file_name, "/") != null or
-        std.mem.indexOf(u8, file_name, "\\") != null)
-    {
-        return error.InvalidFilename;
-    }
-    const static_dir = "./examples/assets/fantasy_crops";
-    const fullPath = try std.fmt.allocPrint(http.arena, "{s}/{s}", .{ static_dir, file_name });
-    try http.sendFile(fullPath, null);
-}
-
-fn getContentType(filename: []const u8) []const u8 {
-    if (std.mem.endsWith(u8, filename, ".png")) return "image/png";
-    if (std.mem.endsWith(u8, filename, ".jpg") or std.mem.endsWith(u8, filename, ".jpeg")) return "image/jpeg";
-    if (std.mem.endsWith(u8, filename, ".gif")) return "image/gif";
-    if (std.mem.endsWith(u8, filename, ".svg")) return "image/svg+xml";
-    return "application/octet-stream";
+    try http.sanitizeFileParam(file_name);
+    const static_dir = "examples/assets/fantasy_crops";
+    const full_path = try std.fmt.allocPrint(http.arena, "{s}/{s}", .{ static_dir, file_name });
+    try http.sendFile(full_path, null);
 }
 
 fn plantList(app: *App, http: *HTTPRequest) !void {
     var sse = try http.NewSSESync();
-    // defer sse.close();
 
     try app.pushAll(&sse);
 
@@ -490,6 +476,7 @@ const App = struct {
         try w.writeAll(
             \\</div>
         );
+        try w.flush();
         try sse.flush();
     }
 

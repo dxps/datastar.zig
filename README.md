@@ -391,16 +391,15 @@ http.cssFmt(format, args) !void     // print formatted output content as text/cs
 http.js(content) !void              // output content as application/javascript
 http.jsFmt(format, args) !void      // print formatted output content as application/javascript
 
+// Sending a file
+// Set optional mime_type to null to calculate the mime_type based on the filename extension
+http.sendFile(filename, ?mime_type) !void 
+
 // Dealing with query params
 http.query() ?[]const u8            // get the query string for this request or null if not present
 http.readSignals(T) !T              // read the signals from the request into struct of given type
 http.setCookie(name, value)         // set a cookie with the response
 http.getCookie(name)                // get a cookie from the requesnt
-
-// Sending a file
-// Send the contents of the file, with optional mime_type
-// if mime_type is null, will calculate based on the name extension
-http.sendFile(filename, ?mime_type) !void 
 
 // Route Parameters 
 http.params.get(name) ?[]const u8  // get the value of named parameter :name
@@ -700,9 +699,30 @@ fn patchElements(http: *HTTPRequest) !void {
         .{getCountAndIncrement()},
         .{},
     );
+
+    // All 6 of the above headers will be sent with the patchElements response
 }
 
 ```
+
+# Automatic Response if missing
+
+Its quite common when you are writing a POST/PUT/PATCH/DELETE handler, that you
+just want to update some internal state in your app, and leave it at that.
+
+Its easy to forget to send a response !
+
+Without a response, the browser will think that you are going to be streaming data
+down this connection, and keep the request alive indefinitely. You wont even see
+any side effects of this unless you carefully view your network activity in dev tools.
+
+Thats probably not what you intended !
+
+To prevent this, the built in Server / Router will automatically terminate the request
+with a response of type `status: 200, content ""`
+
+If - 
+
 # Advanced SSE Topics
 
 ## Batched Writes vs Synchronous Writes 

@@ -207,7 +207,11 @@ pub fn ServerCtx(comptime Context: type) type {
                 .macos, .linux, .freebsd, .openbsd => {
                     // Get current limits
                     var limit = try posix.getrlimit(.NOFILE);
-                    std.log.warn("🚀 Process FD limit Current={}, raise to {}", .{ limit.cur, limit.max });
+                    if (limit.cur == limit.max) {
+                        std.log.warn("🚀 Process FD limit currently at MAX capacity {}", .{limit.max});
+                    } else {
+                        std.log.warn("🚀 Process FD limit Current={}, raise to {}", .{ limit.cur, limit.max });
+                    }
 
                     // Set Soft Limit (cur) to the Hard Limit (max)
                     // On macOS, 'max' is typically 10,240 by default.
@@ -454,6 +458,7 @@ pub fn Router(comptime Context: type) type {
             }
 
             if (!http.replied) {
+                std.log.warn("request {t} {s} didnt reply ??", .{ http.method, http.path });
                 // this is probably a user error - handler didnt bother
                 // replying.  So raise a log error and terminate the call anyway
                 http.html("") catch {};
