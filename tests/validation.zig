@@ -9,7 +9,10 @@ const PORT = 7331;
 
 // Run Datastar validation test suite backend in Zig
 pub fn main(init: std.process.Init) !void {
-    var server = try datastar.HTTPServer.init(init, .{ .port = PORT, .watch = true, .max_fd = true });
+    var server = try datastar.HTTPServer.init(init, .{
+        .port = PORT,
+        .watch = true,
+    });
     defer server.deinit();
 
     {

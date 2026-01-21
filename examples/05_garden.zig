@@ -29,7 +29,7 @@ pub fn main(init: std.process.Init) !void {
     var server = try datastar.HTTPServer.init(init, .{
         .port = PORT,
         .watch = true,
-        .max_fd = true,
+        .fd_limit = .max,
         .log = .{ .theme = .newwave },
     });
     server.useContext(app);

@@ -26,20 +26,28 @@ ctx: ?*anyopaque = null,
 log: Log = undefined,
 middleware: ?*Middleware = null,
 watch: bool = false,
-fd_limit: u64 = 0,
-max_fd: bool = false,
+fd_limit: ?FDLimit = null,
 group: std.Io.Group = .init,
 
 // Config params for creating a server
 pub const Config = struct {
     address: ?[]const u8 = null,
-    port: u16, // must be provided
+    port: u16 = 8080,
     log: Log = .{},
     io: ?Io = null,
     allocator: ?Allocator = null,
     watch: bool = false,
-    fd_limit: u64 = 0,
-    max_fd: bool = false,
+    fd_limit: ?FDLimit = null,
+};
+
+// FD limit configuration
+pub const FDLimit = enum(u64) {
+    max = std.math.maxInt(u64),
+    _,
+
+    pub fn limited(n: u64) FDLimit {
+        return @enumFromInt(n);
+    }
 };
 
 /// init a Server from a juicy main init, and a config
@@ -66,7 +74,6 @@ pub fn init(process_init: std.process.Init, config: Config) !*Server {
         .arena = std.heap.ArenaAllocator.init(allocator),
         .watch = config.watch,
         .fd_limit = config.fd_limit,
-        .max_fd = config.max_fd,
     };
     errdefer self.arena.deinit();
     self.router = try Router.init(self.arena.allocator());
@@ -86,7 +93,7 @@ pub fn concurrent(self: *Server, function: anytype, args: std.meta.ArgsTuple(@Ty
 }
 
 pub fn run(self: *Server) !void {
-    self.maxFdLimits() catch |err| std.log.err("Failed to raise FD limits {}", .{err});
+    self.setFdLimits() catch |err| std.log.err("Failed to raise FD limits {}", .{err});
     defer self.group.cancel(self.io);
 
     if (self.watch) {
@@ -206,39 +213,34 @@ fn watchLoop(self: *Server) Io.Cancelable!void {
     }
 }
 
-fn maxFdLimits(self: *Server) !void {
-    if (self.fd_limit == 0 and !self.max_fd) return;
-    switch (builtin.os.tag) {
-        // TODO - I think Linux might do this differently ?
-        // need to check on linux box before releasing this
-        .macos, .linux, .freebsd, .openbsd => {
-            // Get current limits
-            var limit = try posix.getrlimit(.NOFILE);
-            if (limit.cur == limit.max) {
-                std.log.warn("🚀 Process FD limit currently at MAX capacity {} - no change", .{limit.max});
-                if (self.max_fd) return;
-            }
-            if (self.max_fd) {
-                std.log.warn("🚀 Process FD limit currently at {} - raise to MAX {}", .{ limit.cur, limit.max });
-            } else {
-                // set a specific limit
-                if (limit.cur == self.fd_limit) {
-                    std.log.warn("🚀 Process FD limit currently at {} - no change", .{limit.cur});
-                } else {
-                    std.log.warn("🚀 Process FD limit currently at {} - change to {}", .{ limit.cur, self.fd_limit });
+fn setFdLimits(self: *Server) !void {
+    if (self.fd_limit) |fd_limit| {
+        // Get current limits
+        var system_limit = try posix.getrlimit(.NOFILE);
+        var limit = @intFromEnum(fd_limit);
+
+        switch (builtin.os.tag) {
+            // TODO - I think Linux might do this differently ?
+            // need to check on linux box before releasing this
+            .linux => {
+                // system limit has structs that contain u64
+            },
+            .macos, .freebsd, .openbsd => {
+                // system limit has simple u64s
+                if (limit > system_limit.max) limit = system_limit.max;
+
+                if (limit == system_limit.cur) {
+                    return std.log.warn("🚀 Process FD limit currently at {} - no change", .{system_limit.cur});
                 }
-            }
+                std.log.warn("🚀 Process FD limit currently at {} - change to {}", .{ system_limit.cur, limit });
 
-            // Set Soft Limit (cur) to the Hard Limit (max)
-            // On macOS, 'max' is typically 10,240 by default.
-            limit.cur = if (self.max_fd) limit.max else self.fd_limit;
-
-            posix.setrlimit(.NOFILE, limit) catch |err| {
-                std.log.err("🚀 Failed to bump limits: {}", .{err});
-                return err;
-            };
-        },
-        else => return,
+                posix.setrlimit(.NOFILE, .{ .cur = limit, .max = system_limit.max }) catch |err| {
+                    std.log.err("🚀 Failed to bump limits: {}", .{err});
+                    return err;
+                };
+            },
+            else => return,
+        }
     }
 }
 

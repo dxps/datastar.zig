@@ -27,7 +27,11 @@ pub fn main(process_init: std.process.Init) !void {
     defer app.deinit();
 
     // create the server
-    var server = try datastar.HTTPServer.init(process_init, .{ .port = PORT, .watch = true, .max_fd = true });
+    var server = try datastar.HTTPServer.init(process_init, .{
+        .port = PORT,
+        .watch = true,
+        .fd_limit = .limited(2000),
+    });
     server.useContext(app);
     defer server.deinit();
     std.log.info("listening http://localhost:{d}", .{PORT});

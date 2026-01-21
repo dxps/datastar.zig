@@ -42,7 +42,7 @@ pub fn main(init: std.process.Init) !void {
             .slow_ms = 200,
         },
         .watch = true,
-        .max_fd = true,
+        .fd_limit = .max,
     });
     defer server.deinit();
     std.log.info("Server listening on http://localhost:{}", .{PORT});

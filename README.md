@@ -96,7 +96,7 @@ pub fn main(process_init: std.process.Init) !void {
     const allocator = process_init.gpa;
     const io = process_init.io;
 
-    var server = try HTTPServer.init(process_init, .{.port = PORT});
+    var server = try HTTPServer.init(process_init); // port defaults to 8080
     defer server.deinit();
     std.debug.print("Server listening on http://{s}:{}\n", .{"localhost", PORT});
 
@@ -313,6 +313,18 @@ pub const Config = struct {
     io: ?Io = null,
     allocator: ?Allocator = null,
     watch: bool = false, // set to true to reboot on the executable file changing
+    fd_limit: ?FDLimit = null, // set to a value to override system FD limit for this process
+};
+
+// FD limit configuration
+// leave config as null to ignore, set to .limited(N) to set, or .max to set to MAX
+pub const FDLimit = enum(u64) {
+    max = std.math.maxInt(u64),
+    _,
+
+    pub fn limited(n: u64) FDLimit {
+        return @enumFromInt(n);
+    }
 };
 
 // Create a new server
@@ -339,9 +351,6 @@ server.run()
 
 // spawn a concurrent task grouped with the server
 server.concurrent(fn_ptr, args)
-
-// boost Process FD limits to the max, useful for stress testing
-server.maxFdLimits()
 ```
 
 The built in HTTPServer provides a simple fast router 
@@ -360,7 +369,7 @@ r.add(method, path, handler)
 // Path Parameters example
 r.get("/users/:id/:action", userHandler)
 
-fn userHandler(app: *App, http *HTTPRequest) !void {
+fn userHandler(*HTTPRequest) !void {
     const id = http.params.get("id");
     const action = http.params.get("action");
     ...
@@ -368,15 +377,12 @@ fn userHandler(app: *App, http *HTTPRequest) !void {
 
 ```
 
-When using the built in HTTPServer, all handlers receive either : 
-- a single paramater of type `*HTTPRequest` for servers of type `Server()`
-- a context, and a `*HTTPRequest` for servers of type `ServerCtx(T)`
+When using the built in HTTPServer, all handlers receive a single param 
+of type `*HTTPRequest`
 
-See the above code example, where a global context of type `App` is created,
-and the server is defined as `ServerCtx(*App)`, passing the value of
-the context to the init() 
-
-In this case, the handler functions now all receive that global context.
+If you want a global Context to be available inside handlers, set this value
+on the Server instance using `server.useCtx(*MyGlobalData)`, then inside
+the handler, extract it using `const my_data = http.getCtx(TYPE)`
 
 This HTTPRequest has the following features :
 
@@ -422,6 +428,51 @@ The built in functions allow you to easily return text/html or application/json.
 
 If you want to do anything more exotic, just use the `http.req` to construct whatever other response type you might need ... the new 0.16 stdlib
 provides a lot of very low level control options for returning responses there.
+
+## Configure Server Limits
+
+When creating a HTTPServer, you pass in a Config struct to configure the behaviour.
+
+You can set these additional values :
+
+For setting the Process File Descriptor limit 
+- .fd_limit = null           // ignore - use the system default
+- .fd_limit = .limited(u64)  // set to the specified value
+- .fd_limit = .max           // set to the maximum allowed by the system (unlimited)
+
+## Configuring Thread Pools
+
+Handling thread pools can be interesting.
+
+For a typical Datastar application with lots of persistent SSE connections, which each
+consume a Thread / Coroutine ... if you are not careful, you can hit the maximum number
+of supported concurrency units, at which point the whole system will stop accepting new 
+connections.
+
+To prevent this, the built in HTTPServer uses a set of distinct Thread Pools to manage concurrency.
+
+In the Server Config, there are 3 variables you can set :
+
+- .threads = u64    // set up a pool of threads to manage all short lived connections
+                    // defaults to Num CPUs
+- .stack_size       // stack size for the main thread pool
+- .sse     = u64    // set up a pool of threads to manage long lived SSE connections
+                    // when this is full, extra persistent SSE's will be blocked,
+                    // but the system will continue to operate.
+                    // You can define a Middleware hook to catch the "SSE Full" condition
+                    // and provide the end user with an action 
+- .public_sse = u64 // A separate pool of public SSE connections with its own limit
+- .sse_stack_size   // stack size for all persistent SSE connections
+
+The reason for having 2 SSE pools is for the situation where you have - say - "premium tier" users
+and "free tier" users.
+
+You want to guarantee service for the premium tier users by having a large enough thread pool,
+and limit the free tier users ... so you dont have a situation where too many free tier users
+exhaust the server for your paid members.
+
+Use good judgment and experimentation to adjust these variables to account for memory usage, 
+performance, actual stack usage, etc.
 
 # Using the Datastar SDK
 
