@@ -27,7 +27,15 @@ log: Log = undefined,
 middleware: ?*Middleware = null,
 watch: bool = false,
 fd_limit: ?FDLimit = null,
-group: std.Io.Group = .init,
+
+group: Io.Group = .init,
+pool_general: *Io.Threaded,
+pool_sse: *Io.Threaded,
+pool_public: *Io.Threaded,
+
+io_general: Io,
+io_sse: Io,
+io_public: Io,
 
 // Config params for creating a server
 pub const Config = struct {
@@ -38,6 +46,11 @@ pub const Config = struct {
     allocator: ?Allocator = null,
     watch: bool = false,
     fd_limit: ?FDLimit = null,
+    threads: u64 = 4,
+    stack_size: usize = 64 * 1024,
+    sse_threads: u64 = 32,
+    public_sse_threads: u64 = 8,
+    sse_stack_size: usize = 64 * 1024,
 };
 
 // FD limit configuration
@@ -64,6 +77,29 @@ pub fn init(process_init: std.process.Init, config: Config) !*Server {
     var self: *Server = try allocator.create(Server);
     errdefer allocator.destroy(self);
 
+    self.pool_general = try allocator.create(std.Io.Threaded);
+    errdefer allocator.destroy(self.pool_general);
+
+    self.pool_general.* = std.Io.Threaded.init(allocator, .{
+        .concurrent_limit = .limited(config.threads),
+        .stack_size = config.stack_size,
+        .environ = .empty,
+    });
+
+    self.pool_sse = try allocator.create(std.Io.Threaded);
+    self.pool_sse.* = std.Io.Threaded.init(allocator, .{
+        .concurrent_limit = .limited(config.sse_threads),
+        .stack_size = config.sse_stack_size,
+        .environ = .empty,
+    });
+
+    self.pool_public = try allocator.create(std.Io.Threaded);
+    self.pool_public.* = std.Io.Threaded.init(allocator, .{
+        .concurrent_limit = .limited(config.public_sse_threads),
+        .stack_size = config.sse_stack_size,
+        .environ = .empty,
+    });
+
     self.* = .{
         .process_init = process_init,
         .server = try address.listen(io, .{ .reuse_address = true }),
@@ -74,6 +110,12 @@ pub fn init(process_init: std.process.Init, config: Config) !*Server {
         .arena = std.heap.ArenaAllocator.init(allocator),
         .watch = config.watch,
         .fd_limit = config.fd_limit,
+        .pool_general = self.pool_general,
+        .pool_sse = self.pool_sse,
+        .pool_public = self.pool_public,
+        .io_general = self.pool_general.io(),
+        .io_sse = self.pool_sse.io(),
+        .io_public = self.pool_public.io(),
     };
     errdefer self.arena.deinit();
     self.router = try Router.init(self.arena.allocator());
@@ -86,10 +128,23 @@ pub fn useContext(self: *Server, ctx: *anyopaque) void {
 
 pub fn deinit(self: *Server) void {
     self.arena.deinit();
+
+    // 2. Deinit the Pools (Stop threads)
+    self.pool_general.deinit();
+    self.pool_sse.deinit();
+    self.pool_public.deinit();
+
+    // 3. Free the Pool Structs
+    self.allocator.destroy(self.pool_general);
+    self.allocator.destroy(self.pool_sse);
+    self.allocator.destroy(self.pool_public);
+
+    // 4. Free Server
+    self.allocator.destroy(self);
 }
 
 pub fn concurrent(self: *Server, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) Io.ConcurrentError!void {
-    return self.group.concurrent(self.io, function, args);
+    return self.group.concurrent(self.io_general, function, args);
 }
 
 pub fn run(self: *Server) !void {
@@ -105,7 +160,7 @@ pub fn run(self: *Server) !void {
     // create global app instance
     while (true) {
         const conn = try self.server.accept(self.io);
-        self.group.concurrent(self.io, handleConnection, .{ self, conn }) catch |err| {
+        self.group.concurrent(self.io_general, handleConnection, .{ self, conn }) catch |err| {
             std.log.err("spawn handler error {}\n", .{err});
             conn.close(self.io);
             // group.cancel(self.io);

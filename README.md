@@ -453,16 +453,16 @@ To prevent this, the built in HTTPServer uses a set of distinct Thread Pools to 
 
 In the Server Config, there are 3 variables you can set :
 
-- .threads = u64    // set up a pool of threads to manage all short lived connections
-                    // defaults to Num CPUs
-- .stack_size       // stack size for the main thread pool
-- .sse     = u64    // set up a pool of threads to manage long lived SSE connections
-                    // when this is full, extra persistent SSE's will be blocked,
-                    // but the system will continue to operate.
-                    // You can define a Middleware hook to catch the "SSE Full" condition
-                    // and provide the end user with an action 
-- .public_sse = u64 // A separate pool of public SSE connections with its own limit
-- .sse_stack_size   // stack size for all persistent SSE connections
+- .threads = u64            // set up a pool of threads to manage all short lived connections
+                            // defaults to Num CPUs
+- .stack_size               // stack size for the main thread pool
+- .sse_threads = u64        // set up a pool of threads to manage long lived SSE connections
+                            // when this is full, extra persistent SSE's will be blocked,
+                            // but the system will continue to operate.
+                            // You can define a Middleware hook to catch the "SSE Full" condition
+                            // and provide the end user with an action 
+- .public_sse_threads = u64 // A separate pool of public SSE connections with its own limit
+- .sse_stack_size           // stack size for all persistent SSE connections
 
 The reason for having 2 SSE pools is for the situation where you have - say - "premium tier" users
 and "free tier" users.

@@ -334,7 +334,7 @@ const App = struct {
         app.mutex.lock();
         defer app.mutex.unlock();
 
-        const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
+        const sort_prefs = app.sessions.get(session) orelse return error.InvalidSession;
         std.log.info("pushCatList for session {s} with prefs {}", .{ session, sort_prefs });
 
         app.sortCats(.id);
