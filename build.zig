@@ -5,6 +5,8 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    const check = b.step("check", "Check if everything compiles (for ZLS)");
+
     const pubsub = b.dependency("pubsub", .{
         .target = target,
         .optimize = optimize,
@@ -26,6 +28,7 @@ pub fn build(b: *std.Build) void {
         }),
     });
     server_tests.root_module.addImport("pubsub", pubsub.module("pubsub"));
+    check.dependOn(&server_tests.step);
 
     const run_server_tests = b.addRunArtifact(server_tests);
 
@@ -79,6 +82,7 @@ pub fn build(b: *std.Build) void {
         b.installArtifact(exe);
 
         const run_cmd = b.addRunArtifact(exe);
+
         run_cmd.step.dependOn(b.getInstallStep());
         if (b.args) |args| {
             run_cmd.addArgs(args);
@@ -86,5 +90,17 @@ pub fn build(b: *std.Build) void {
 
         const run_step = b.step(ex.name, ex.file);
         run_step.dependOn(&run_cmd.step);
+
+        // Now add a check step just for this example that we add to the global check
+        const exe_check = b.addExecutable(.{
+            .name = ex.name, // Name doesn't strictly matter here
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(ex.file),
+                .target = target,
+                .optimize = optimize,
+            }),
+        });
+        exe_check.root_module.addImport("datastar", datastar_module);
+        check.dependOn(&exe_check.step); // <--- Add to check
     }
 }
