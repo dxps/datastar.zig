@@ -3,7 +3,7 @@ const HTTPRequest = @import("http_request.zig");
 const Params = @import("params.zig");
 
 const Router = @This();
-const RouteHandler = *const fn (req: *HTTPRequest) anyerror!void;
+pub const RouteHandler = *const fn (req: *HTTPRequest) anyerror!void;
 
 allocator: std.mem.Allocator,
 root: *Node,
@@ -32,9 +32,10 @@ pub fn init(allocator: std.mem.Allocator) !*Router {
     return self;
 }
 
-// NOTE - dont need a deinit() here, because the server
-// will always invoke the router using an arena, and cleanup
-// the arena when the server.deinit() is called
+pub fn deinit(self: *Router) void {
+    self.root.deinit(self.allocator);
+    self.allocator.destroy(self);
+}
 
 // No Context parameter needed - it's already baked into the Router type!
 pub fn get(self: *Router, path: []const u8, handler: RouteHandler) void {

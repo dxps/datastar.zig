@@ -357,20 +357,20 @@ pub fn onError(self: *HTTPRequest, func: MiddlewareFunc) !void {
 
 const TestApp = struct { data: i32 };
 
-fn testAppHandler(app: *TestApp, _: *HTTPRequest) !void {
-    std.debug.print("test *App handler data:{d}\n", .{app.data});
+fn testAppHandler(_: *HTTPRequest) !void {
+    std.debug.print("test app handler\n", .{});
 }
 
-fn testVoidHandler(_: *HTTPRequest) !void {
-    std.debug.print("test void handler\n", .{});
+fn testHandler(_: *HTTPRequest) !void {
+    std.debug.print("test handler\n", .{});
 }
 
-fn testGetHandler(app: *TestApp, _: *HTTPRequest) !void {
-    std.debug.print("test get handler data:{d}\n", .{app.data});
+fn testGetHandler(_: *HTTPRequest) !void {
+    std.debug.print("test get handler\n", .{});
 }
 
-fn testPostHandler(app: *TestApp, _: *HTTPRequest) !void {
-    std.debug.print("test post handler data:{d}\n", .{app.data});
+fn testPostHandler(_: *HTTPRequest) !void {
+    std.debug.print("test post handler\n", .{});
 }
 
 test "Params.get returns correct value" {
@@ -386,33 +386,9 @@ test "Params.get returns correct value" {
     try std.testing.expect(params.get("missing") == null);
 }
 
-test "RouteHandler signature for void context" {
-    const Handler = RouteHandler(void);
-    const info = @typeInfo(Handler);
-
-    // Should be a function pointer with 1 parameter (just HTTPRequest)
-    try std.testing.expect(info == .pointer);
-    const fn_info = @typeInfo(info.pointer.child).@"fn";
-    try std.testing.expectEqual(1, fn_info.params.len);
-}
-
-test "RouteHandler signature for App context" {
-    const App = struct { count: usize };
-    const Handler = RouteHandler(*App);
-    const info = @typeInfo(Handler);
-
-    // Should be a function pointer with 2 parameters (ctx and HTTPRequest)
-    try std.testing.expect(info == .pointer);
-    const fn_info = @typeInfo(info.pointer.child).@"fn";
-    try std.testing.expectEqual(2, fn_info.params.len);
-}
-
 test "Router can add and store routes" {
-    var router = try Router(*TestApp).init(std.testing.allocator);
-    defer {
-        router.root.deinit(std.testing.allocator);
-        std.testing.allocator.destroy(router);
-    }
+    var router = try Router.init(std.testing.allocator);
+    defer router.deinit();
 
     router.get("/test", testAppHandler);
 
@@ -422,11 +398,8 @@ test "Router can add and store routes" {
 }
 
 test "Router handles parameterized routes" {
-    var router = try Router(*TestApp).init(std.testing.allocator);
-    defer {
-        router.root.deinit(std.testing.allocator);
-        std.testing.allocator.destroy(router);
-    }
+    var router = try Router.init(std.testing.allocator);
+    defer router.deinit();
 
     router.get("/user/:id", testAppHandler);
 
@@ -441,24 +414,9 @@ test "Router handles parameterized routes" {
     try std.testing.expectEqualStrings("id", user_node.children.items[0].param_name);
 }
 
-test "Router with void context" {
-    var router = try Router(void).init(std.testing.allocator);
-    defer {
-        router.root.deinit(std.testing.allocator);
-        std.testing.allocator.destroy(router);
-    }
-
-    router.get("/test", testVoidHandler);
-
-    try std.testing.expect(router.root.children.items.len == 1);
-}
-
 test "Router deduplicates identical paths" {
-    var router = try Router(*TestApp).init(std.testing.allocator);
-    defer {
-        router.root.deinit(std.testing.allocator);
-        std.testing.allocator.destroy(router);
-    }
+    var router = try Router.init(std.testing.allocator);
+    defer router.deinit();
 
     router.get("/test", testGetHandler);
     router.post("/test", testPostHandler);
