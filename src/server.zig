@@ -217,7 +217,7 @@ fn watchLoop(self: *Server) Io.Cancelable!void {
         return error.Canceled;
     };
     defer self.allocator.free(self_path);
-    std.log.warn("♻️ Monitoring Executable File {s}", .{self_path});
+    std.log.warn("♻️  Monitoring Executable File {s}", .{self_path});
 
     var initial_inode: u64 = 0;
     var initial_mtime: Io.Timestamp = .zero;
@@ -275,12 +275,9 @@ fn setFdLimits(self: *Server) !void {
         var limit = @intFromEnum(fd_limit);
 
         switch (builtin.os.tag) {
-            // TODO - I think Linux might do this differently ?
-            // need to check on linux box before releasing this
-            .linux => {
-                // system limit has structs that contain u64
-            },
-            .macos, .freebsd, .openbsd => {
+            // tested on Linux as well - was concerned because the rlimit types on BSDs are
+            // just u64, but linux has a struct type instead. Works though
+            .macos, .freebsd, .openbsd, .linux => {
                 // system limit has simple u64s
                 if (limit > system_limit.max) limit = system_limit.max;
 
