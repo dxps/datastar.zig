@@ -54,11 +54,12 @@ pub const Config = struct {
 };
 
 // FD limit configuration
-pub const FDLimit = enum(u64) {
-    max = std.math.maxInt(u64),
+pub const rlim_t = std.posix.rlim_t;
+pub const FDLimit = enum(rlim_t) {
+    max = std.math.maxInt(rlim_t),
     _,
 
-    pub fn limited(n: u64) FDLimit {
+    pub fn limited(n: rlim_t) FDLimit {
         return @enumFromInt(n);
     }
 };
