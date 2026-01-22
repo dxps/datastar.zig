@@ -9,6 +9,8 @@ const Allocator = std.mem.Allocator;
 
 const PORT = 8083;
 
+pub const std_options = std.Options{ .log_level = .debug };
+
 // Schema for messages passed over pubsub
 const MQSchema = union(enum) {
     cats: void,

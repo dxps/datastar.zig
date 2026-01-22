@@ -6,6 +6,8 @@ const Io = std.Io;
 
 const PORT = 8081;
 
+pub const std_options = std.Options{ .log_level = .debug };
+
 var update_count: usize = 1;
 var update_mutex: std.Thread.Mutex = .{};
 

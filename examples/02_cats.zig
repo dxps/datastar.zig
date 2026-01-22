@@ -10,6 +10,8 @@ const Allocator = std.mem.Allocator;
 
 const PORT = 8082;
 
+pub const std_options = std.Options{ .log_level = .debug };
+
 // This example demonstrates a simple auction site that uses
 // SSE and pub/sub to have realtime updates of bids on a Cat auction
 pub fn main(init: std.process.Init) !void {

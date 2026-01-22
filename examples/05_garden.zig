@@ -11,6 +11,8 @@ const homepage = @embedFile("05_index.html");
 
 const PORT = 8085;
 
+pub const std_options = std.Options{ .log_level = .debug };
+
 // Schema for messages passed over pubsub
 const MQSchema = union(enum) {
     plants: void,
