@@ -25,6 +25,10 @@ Use `wrk -t12 -c400 -d10s http://localhost:8090/sse` to get some bench numbers
 | **Zig 0.16** | **Datastar SSE** 100k payload | **28,275** | **11.50ms** | 4.90 GB | 21.5 MB  |
 | **Zig 0.16** | SSE % performance | |  | 67  % | |
 | | | | | | |
+| **Zig 0.16 Fibers** | Plain HTML | 40,243 | 137.6us | **5.70 GB** | 665,896 |
+| **Zig 0.16 Fibers** | **Datastar SSE** 100k payload | **26,996** | **237.5us** | 4.68 GB | 17.1 MB  |
+| **Zig 0.16 Fibers** | SSE % performance | |  | 67  % | |
+| | | | | | |
 | **Rust** | Plain HTML | 38,201 | 5.13ms | **5.41 GB** | 1,845,936 |
 | **Rust** | **Datastar SSE** 100k payload | **20,943** | **11.43ms** | 3.63 GB | 40.2 MB |
 | **Rust** | SSE % performance | |  | 67 % | |

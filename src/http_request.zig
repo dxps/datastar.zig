@@ -99,24 +99,24 @@ pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
     };
 }
 
+const default_headers = &[_]std.http.Header{
+    .{ .name = "connection", .value = "keep-alive" },
+    .{ .name = "x-powered-by", .value = "datastar.zig" },
+};
+
 /// use this to construct extra_headers when creating any response
 /// it will pull in self.extra_headers, and merge them with the new set
 /// to provide a complete set for the actual request
 /// See http.setCookie() for an example where this is needed
 pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const std.http.Header {
-    const defaults = &[_]std.http.Header{
-        .{ .name = "connection", .value = "keep-alive" },
-        .{ .name = "x-powered-by", .value = "datastar.zig" },
-    };
-
     const stored_extras = if (self.extra_headers) |h| h else &[_]std.http.Header{};
-    const total_len = defaults.len + stored_extras.len + extra.len;
+    const total_len = default_headers.len + stored_extras.len + extra.len;
     const combined = try self.arena.alloc(std.http.Header, total_len);
 
     var cursor: usize = 0;
 
-    @memcpy(combined[cursor..][0..defaults.len], defaults);
-    cursor += defaults.len;
+    @memcpy(combined[cursor..][0..default_headers.len], default_headers);
+    cursor += default_headers.len;
 
     if (stored_extras.len > 0) {
         @memcpy(combined[cursor..][0..stored_extras.len], stored_extras);
@@ -367,7 +367,12 @@ pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8
     const buffers = &[_][]u8{&copy_buffer};
 
     while (true) {
-        const bytes_read = try file.readStreaming(self.io, buffers);
+        const bytes_read = file.readStreaming(self.io, buffers) catch |err| {
+            switch (err) {
+                error.EndOfStream => break,
+                else => return err,
+            }
+        };
         if (bytes_read == 0) break;
 
         try body_writer.writer.writeAll(copy_buffer[0..bytes_read]);

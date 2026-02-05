@@ -1,7 +1,8 @@
 const std = @import("std");
+const Io = std.Io;
+
 const Node = @import("server.zig").Node;
 
-const Io = std.Io;
 const Params = @This();
 
 names: [8][]const u8 = undefined,
@@ -36,4 +37,13 @@ pub fn format(self: Params, writer: *Io.Writer) !void {
         try writer.print("  {s}: \"{s}\"", .{ self.names[i], self.values[i] });
     }
     try writer.writeAll("}");
+}
+
+pub fn doThis(self: Params) void {
+    _ = self; // autofix
+    std.log.debug("do this", .{});
+}
+
+fn thing(self: Params) !void {
+    _ = self; // autofix
 }

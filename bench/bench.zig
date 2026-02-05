@@ -4,10 +4,19 @@ const HTTPRequest = datastar.HTTPRequest;
 const Io = std.Io;
 
 pub fn main(init: std.process.Init) !void {
-    var server = try datastar.Server().from(init, .{ .port = 8090, .log = .{ .theme = .monochrom } });
+    var server = try datastar.HTTPServer.init(init, .{
+        .port = 8090,
+        .allocator = std.heap.smp_allocator,
+        .log = .{
+            .format = .terminal,
+            .theme = .monochrom,
+        },
+        .watch = true,
+        .threads = 255,
+        .fd_limit = .max,
+        .sse_concurrency = .fibers,
+    });
     defer server.deinit();
-    try server.maxFdLimits();
-    try server.rebooter(init);
 
     {
         const r = server.router;

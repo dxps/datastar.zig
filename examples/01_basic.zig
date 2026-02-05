@@ -1,5 +1,6 @@
 const std = @import("std");
 const datastar = @import("datastar");
+const options = @import("options");
 const HTTPRequest = datastar.HTTPRequest;
 
 const Io = std.Io;
@@ -34,8 +35,11 @@ fn setHotReload(io: Io) !void {
 pub fn main(init: std.process.Init) !void {
     try setHotReload(init.io);
 
+    const allocator = std.heap.smp_allocator;
+
     var server = try datastar.HTTPServer.init(init, .{
         .port = PORT,
+        .allocator = allocator,
         .log = .{
             .format = .terminal,
             .theme = .monochrom,
@@ -45,6 +49,7 @@ pub fn main(init: std.process.Init) !void {
         },
         .watch = true,
         .fd_limit = .max,
+        .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
     });
     defer server.deinit();
     std.log.info("Server listening on http://localhost:{}", .{PORT});

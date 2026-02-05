@@ -6,6 +6,11 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const check = b.step("check", "Check if everything compiles (for ZLS)");
+    //
+    // Add CLI flag for using Kqueue fibers (experimental)
+    const enable_fibers = b.option(bool, "enable-kqueue-fibers", "Enable KQueue backed Fibers") orelse false;
+    const options = b.addOptions();
+    options.addOption(bool, "enable_fibers", enable_fibers);
 
     const pubsub = b.dependency("pubsub", .{
         .target = target,
@@ -79,6 +84,7 @@ pub fn build(b: *std.Build) void {
             }),
         });
         exe.root_module.addImport("datastar", datastar_module);
+        exe.root_module.addOptions("options", options);
         b.installArtifact(exe);
 
         const run_cmd = b.addRunArtifact(exe);

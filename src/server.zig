@@ -32,10 +32,17 @@ group: Io.Group = .init,
 pool_general: *Io.Threaded,
 pool_sse: *Io.Threaded,
 pool_public: *Io.Threaded,
+pool_fibers: ?*Io.Evented = null,
 
 io_general: Io,
 io_sse: Io,
 io_public: Io,
+io_fibers: ?Io = null,
+
+pub const Concurrency = enum {
+    threads,
+    fibers,
+};
 
 // Config params for creating a server
 pub const Config = struct {
@@ -46,11 +53,13 @@ pub const Config = struct {
     allocator: ?Allocator = null,
     watch: bool = false,
     fd_limit: ?FDLimit = null,
-    threads: u64 = 4,
-    stack_size: usize = 64 * 1024,
-    sse_threads: u64 = 32,
-    public_sse_threads: u64 = 8,
-    sse_stack_size: usize = 64 * 1024,
+    threads: u64 = 1024,
+    // Debug mode consumes a lot more stack, due to carrying extra debug info
+    stack_size: usize = if (builtin.mode == .Debug) 16 * 1024 * 1024 else 2 * 1024 * 1024,
+    sse_threads: u64 = 1024,
+    public_sse_threads: u64 = 32,
+    sse_concurrency: Concurrency = .threads,
+    sse_stack_size: usize = if (builtin.mode == .Debug) 16 * 1024 * 1024 else 2 * 1024 * 1024,
 };
 
 // FD limit configuration
@@ -101,6 +110,18 @@ pub fn init(process_init: std.process.Init, config: Config) !*Server {
         .environ = .empty,
     });
 
+    self.pool_fibers = null;
+    self.io_fibers = null;
+    if (config.sse_concurrency == .fibers) {
+        self.pool_fibers = try allocator.create(std.Io.Kqueue);
+        const pool_fibers = self.pool_fibers.?;
+        try std.Io.Kqueue.init(pool_fibers, allocator, .{});
+        self.io_fibers = pool_fibers.io();
+        std.log.debug("🧵 HTTP Server Using Kqueue Fibers for handlers (Experimental)", .{});
+    } else {
+        std.log.debug("🤹‍♂️ HTTP Server Using OS Threads for handlers", .{});
+    }
+
     self.* = .{
         .process_init = process_init,
         .server = try address.listen(io, .{ .reuse_address = true }),
@@ -114,9 +135,11 @@ pub fn init(process_init: std.process.Init, config: Config) !*Server {
         .pool_general = self.pool_general,
         .pool_sse = self.pool_sse,
         .pool_public = self.pool_public,
+        .pool_fibers = self.pool_fibers,
         .io_general = self.pool_general.io(),
         .io_sse = self.pool_sse.io(),
         .io_public = self.pool_public.io(),
+        .io_fibers = self.io_fibers,
     };
     errdefer self.arena.deinit();
     self.router = try Router.init(self.arena.allocator());
@@ -161,12 +184,19 @@ pub fn run(self: *Server) !void {
     // create global app instance
     while (true) {
         const conn = try self.server.accept(self.io);
-        self.group.concurrent(self.io_general, handleConnection, .{ self, conn }) catch |err| {
-            std.log.err("spawn handler error {}\n", .{err});
-            conn.close(self.io);
-            // group.cancel(self.io);
-            continue; // ah well failed - try another one, dont exit the loop
-        };
+        if (self.io_fibers) |io_fibers| {
+            _ = io_fibers.concurrent(handleConnection, .{ self, conn }) catch |err| {
+                std.log.err("spawn fiber handler error {}\n", .{err});
+                conn.close(self.io);
+                continue; // ah well failed - try another one, dont exit the loop
+            };
+        } else {
+            self.group.concurrent(self.io_general, handleConnection, .{ self, conn }) catch |err| {
+                std.log.err("spawn handler error {}\n", .{err});
+                conn.close(self.io);
+                continue; // ah well failed - try another one, dont exit the loop
+            };
+        }
     }
 }
 
