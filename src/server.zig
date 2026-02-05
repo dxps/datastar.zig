@@ -53,7 +53,7 @@ pub const Config = struct {
     allocator: ?Allocator = null,
     watch: bool = false,
     fd_limit: ?FDLimit = null,
-    threads: u64 = 1024,
+    threads: u64 = 32,
     // Debug mode consumes a lot more stack, due to carrying extra debug info
     stack_size: usize = if (builtin.mode == .Debug) 16 * 1024 * 1024 else 2 * 1024 * 1024,
     sse_threads: u64 = 1024,
