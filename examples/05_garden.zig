@@ -1,5 +1,6 @@
 const std = @import("std");
 const datastar = @import("datastar");
+const options = @import("options");
 const HTTPRequest = datastar.HTTPRequest;
 const pubsub = datastar.pubsub;
 
@@ -21,21 +22,22 @@ const MQSchema = union(enum) {
 
 // SSE and pub/sub to have realtime updates of updates to the garden
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    var app = try App.init(io, allocator);
-    defer app.deinit();
-
     // create the server
     var server = try datastar.HTTPServer.init(init, .{
         .port = PORT,
         .watch = true,
         .fd_limit = .max,
         .log = .{ .theme = .newwave },
+        .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
+        .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
     });
-    server.useContext(app);
     defer server.deinit();
+
+    // Create global app instance and attach it to the server
+    var app = try App.init(server.io, server.io_fibers orelse server.io, server.allocator);
+    defer app.deinit();
+    server.useContext(app);
+
     std.log.info("listening http://localhost:{d}", .{PORT});
 
     // create routes
@@ -437,7 +439,7 @@ const App = struct {
     // Represented in the order of (0) Carrot (1) Radish (2) Gourd (3) Onion
     crop_counts: [4]u32 = [_]u32{ 0, 0, 0, 0 },
 
-    pub fn init(io: Io, allocator: Allocator) !*App {
+    pub fn init(io: Io, pubsub_io: Io, allocator: Allocator) !*App {
         const app = try allocator.create(App);
         app.* = .{
             .io = io,
@@ -449,7 +451,7 @@ const App = struct {
                 GourdConfig,
                 OnionConfig,
             },
-            .pubsub = pubsub.PubSub(MQSchema).init(io, allocator),
+            .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
         };
         return app;
     }

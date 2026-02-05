@@ -1,6 +1,6 @@
 const std = @import("std");
-
 const datastar = @import("datastar");
+const options = @import("options");
 const HTTPRequest = datastar.HTTPRequest;
 
 const pubsub = datastar.pubsub;
@@ -15,21 +15,21 @@ pub const std_options = std.Options{ .log_level = .debug };
 // This example demonstrates a simple auction site that uses
 // SSE and pub/sub to have realtime updates of bids on a Cat auction
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    // Create the global app instance
-    var app = try App.init(io, allocator);
-    defer app.deinit();
-
     // create the server
     var server = try datastar.HTTPServer.init(init, .{
         .port = PORT,
+        .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
+        .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
         .watch = true,
         .fd_limit = .limited(2048),
     });
-    server.useContext(app);
     defer server.deinit();
+
+    // Create the global app instance and attach it to the server
+    var app = try App.init(server.io, server.io_fibers orelse server.io, server.allocator);
+    defer app.deinit();
+    server.useContext(app);
+
     std.log.info("listening http://localhost:{d}", .{PORT});
 
     // create the routes
@@ -183,14 +183,14 @@ const App = struct {
     mutex: std.Thread.Mutex,
     pubsub: pubsub.PubSub(MQSchema),
 
-    pub fn init(io: Io, allocator: Allocator) !*App {
+    pub fn init(io: Io, pubsub_io: Io, allocator: Allocator) !*App {
         const app = try allocator.create(App);
         app.* = .{
             .io = io,
             .allocator = allocator,
             .mutex = .{},
             .cats = try createCats(allocator),
-            .pubsub = pubsub.PubSub(MQSchema).init(io, allocator),
+            .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
         };
         return app;
     }

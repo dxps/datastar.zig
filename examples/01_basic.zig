@@ -35,11 +35,8 @@ fn setHotReload(io: Io) !void {
 pub fn main(init: std.process.Init) !void {
     try setHotReload(init.io);
 
-    const allocator = std.heap.smp_allocator;
-
     var server = try datastar.HTTPServer.init(init, .{
         .port = PORT,
-        .allocator = allocator,
         .log = .{
             .format = .terminal,
             .theme = .monochrom,
@@ -49,6 +46,7 @@ pub fn main(init: std.process.Init) !void {
         },
         .watch = true,
         .fd_limit = .max,
+        .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
         .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
     });
     defer server.deinit();
