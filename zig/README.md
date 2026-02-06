@@ -27,3 +27,13 @@ build with -Ooptimize=ReleaseFast/Safe ... or deliberately pass `std.heap.smp_al
 as the .allocator to the Server init function.
 
 Enjoy !
+
+# 2490
+
+NOTE - the pubsub lib used to do a timedwait on the std.Thread.Mutex to be able to generate timeout 
+events to post to the subscriber
+
+With the changes to std.Io.Mutex and std.Io.Condition ... I cant seem to find the equiv functions
+for this yet, so this is all released without timedwait - just does a normal uncancellable wait on the mutex.
+
+This means that receiving "timeout" signals on a subscription are borked till I can work it out
