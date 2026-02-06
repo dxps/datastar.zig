@@ -23,7 +23,7 @@ pub const Colorizer = struct {
     pub const VTable = struct {
         statusColor: *const fn (ctx: *const anyopaque, status: std.http.Status) []const u8,
         methodColor: *const fn (ctx: *const anyopaque, method: std.http.Method) []const u8,
-        timerColor: *const fn (ctx: *const anyopaque, fast_us: u64, slow_ms: u64, elapsed: u64, detached: bool) []const u8,
+        timerColor: *const fn (ctx: *const anyopaque, fast_us: u64, slow_ms: u64, elapsed_ns: i96, detached: bool) []const u8,
         timestampColor: *const fn (ctx: *const anyopaque) []const u8,
         debugColor: *const fn (ctx: *const anyopaque) []const u8,
     };
@@ -38,8 +38,8 @@ pub const Colorizer = struct {
         return self.vtable.methodColor(self.ptr, method);
     }
 
-    pub fn timerColor(self: Colorizer, fast_us: u64, slow_ms: u64, elapsed: u64, detached: bool) []const u8 {
-        return self.vtable.timerColor(self.ptr, fast_us, slow_ms, elapsed, detached);
+    pub fn timerColor(self: Colorizer, fast_us: u64, slow_ms: u64, elapsed_ns: i96, detached: bool) []const u8 {
+        return self.vtable.timerColor(self.ptr, fast_us, slow_ms, elapsed_ns, detached);
     }
 
     pub fn timestampColor(self: Colorizer) []const u8 {
@@ -89,8 +89,8 @@ pub const Classic = struct {
         };
     }
 
-    fn timerColorImpl(_: *const anyopaque, fast_us: u64, slow_ms: u64, elapsed: u64, detached: bool) []const u8 {
-        const elapsed_us = @divTrunc(elapsed, 1000);
+    fn timerColorImpl(_: *const anyopaque, fast_us: u64, slow_ms: u64, elapsed_ns: i96, detached: bool) []const u8 {
+        const elapsed_us = @divTrunc(elapsed_ns, 1000);
         const elapsed_ms = @divTrunc(elapsed_us, 1000);
 
         if (2 * elapsed_us <= fast_us) return "\x1b[1;96m";
@@ -145,8 +145,8 @@ pub const NewWave = struct {
         };
     }
 
-    fn timerColorImpl(_: *const anyopaque, fast_us: u64, slow_ms: u64, elapsed: u64, detached: bool) []const u8 {
-        const elapsed_us = @divTrunc(elapsed, 1000);
+    fn timerColorImpl(_: *const anyopaque, fast_us: u64, slow_ms: u64, elapsed_ns: i96, detached: bool) []const u8 {
+        const elapsed_us = @divTrunc(elapsed_ns, 1000);
         const elapsed_ms = @divTrunc(elapsed_us, 1000);
 
         // is it fast ?
@@ -204,8 +204,8 @@ pub const Monochrom = struct {
         };
     }
 
-    fn timerColorImpl(_: *const anyopaque, fast_us: u64, slow_ms: u64, elapsed: u64, detached: bool) []const u8 {
-        const elapsed_us = @divTrunc(elapsed, 1000);
+    fn timerColorImpl(_: *const anyopaque, fast_us: u64, slow_ms: u64, elapsed_ns: i96, detached: bool) []const u8 {
+        const elapsed_us = @divTrunc(elapsed_ns, 1000);
         const elapsed_ms = @divTrunc(elapsed_us, 1000);
 
         // is it fast ?

@@ -14,6 +14,7 @@ pub fn main(init: std.process.Init) !void {
         .watch = true,
         .threads = 255,
         .fd_limit = .max,
+        // comment this out to return to using sane threads
         .sse_concurrency = .fibers,
     });
     defer server.deinit();
@@ -34,9 +35,9 @@ pub fn handler(http: *HTTPRequest) !void {
 }
 
 pub fn handlerLogged(http: *HTTPRequest) !void {
-    var t1 = try std.time.Timer.start();
+    var t1 = std.Io.Timestamp.now(http.io, std.Io.Clock.real);
     defer {
-        std.debug.print("Zig index handler took {} microseconds\n", .{t1.read() / std.time.ns_per_ms});
+        std.debug.print("Zig index handler took {} microseconds\n", .{@divTrunc(t1.untilNow(http.io, std.Io.Clock.real).toNanoseconds(), std.time.ns_per_ms)});
     }
     return http.html(@embedFile("index.html"));
 }

@@ -126,7 +126,7 @@ pub const SSE = struct {
     // Sends a keepalive packet on a connected SSE
     // this is a HTML patchElement with no id, sending the time elapsed inside the SSE, in seconds
     pub fn keepalive(self: *SSE) !void {
-        const now = try Io.Clock.real.now(self.io);
+        const now = Io.Clock.real.now(self.io);
         try self.patchElementsFmt(
             \\<keepalive data-time="{}" />
         , .{self.start_time.durationTo(now).toSeconds()}, .{});

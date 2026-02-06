@@ -107,10 +107,8 @@ fn pushCatList(app: *App, sse: *datastar.SSE) !void {
 
 fn postBid(http: *HTTPRequest) !void {
     const app = http.getCtx(*App);
-    app.mutex.lock();
-    defer {
-        app.mutex.unlock();
-    }
+    try app.lock();
+    defer app.unlock();
 
     const id = http.params.getInt(usize, "id") orelse 0;
 
@@ -180,7 +178,7 @@ const App = struct {
     io: Io,
     allocator: Allocator,
     cats: Cats,
-    mutex: std.Thread.Mutex,
+    mutex: Io.Mutex,
     pubsub: pubsub.PubSub(MQSchema),
 
     pub fn init(io: Io, pubsub_io: Io, allocator: Allocator) !*App {
@@ -188,11 +186,19 @@ const App = struct {
         app.* = .{
             .io = io,
             .allocator = allocator,
-            .mutex = .{},
+            .mutex = .init,
             .cats = try createCats(allocator),
             .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
         };
         return app;
+    }
+
+    pub fn lock(app: *App) !void {
+        try app.mutex.lock(app.io);
+    }
+
+    pub fn unlock(app: *App) void {
+        app.mutex.unlock(app.io);
     }
 
     pub fn deinit(app: *App) void {

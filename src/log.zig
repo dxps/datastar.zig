@@ -27,7 +27,7 @@ slow_ms: u64 = 200, // 200ms
 fast_us: u64 = 20, // 20us
 
 pub fn info(log: Log, http: *HTTPRequest) void {
-    const elapsed: u64 = http.timer.read();
+    const elapsed_ns: i96 = http.timer.untilNow(http.io, std.Io.Clock.real).toNanoseconds();
     const c = log.theme.get();
     const payload_size: []const u8 = switch (http.method) {
         .PUT, .PATCH, .POST, .DELETE => if (http.req.head.content_length) |l|
@@ -52,8 +52,8 @@ pub fn info(log: Log, http: *HTTPRequest) void {
             http.method,
             c.reset,
             http.getPathOnly(),
-            c.timerColor(log.fast_us, log.slow_ms, elapsed, http.detach),
-            @divTrunc(elapsed, 1_000),
+            c.timerColor(log.fast_us, log.slow_ms, elapsed_ns, http.detach),
+            @divTrunc(elapsed_ns, 1_000),
             c.reset,
             payload_size,
         },
@@ -95,7 +95,7 @@ pub fn err(_: Log, http: *HTTPRequest, error_value: anyerror, status: std.http.S
 /// Returns a formatted string "YYYY-MM-DD HH:MM:SS.UUUUUU"
 /// Caller owns the returned slice.
 pub fn formatTimeAlloc(http: *HTTPRequest) []u8 {
-    const micros_utc_ts: std.Io.Timestamp = std.Io.Clock.real.now(http.io) catch return "";
+    const micros_utc_ts: std.Io.Timestamp = std.Io.Clock.real.now(http.io);
     const micros_utc: u64 = @intCast(micros_utc_ts.toMilliseconds());
     const seconds: u47 = @intCast(@divTrunc(micros_utc, std.time.ms_per_s));
     const micros = micros_utc % std.time.ms_per_s;

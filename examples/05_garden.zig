@@ -120,8 +120,8 @@ fn plantList(http: *HTTPRequest) !void {
 
 fn postPlantEffect(http: *HTTPRequest) !void {
     const app = http.getCtx(*App);
-    app.mutex.lock();
-    defer app.mutex.unlock();
+    try app.lock();
+    defer app.unlock();
 
     const side_param = http.params.get("side") orelse return error.NoSide;
     const left = if (std.mem.eql(u8, side_param, "inc")) true else false;
@@ -433,7 +433,7 @@ const App = struct {
     io: Io,
     allocator: Allocator,
     plants: [4]?Plant,
-    mutex: std.Thread.Mutex,
+    mutex: Io.Mutex,
     pubsub: pubsub.PubSub(MQSchema),
 
     // Represented in the order of (0) Carrot (1) Radish (2) Gourd (3) Onion
@@ -444,7 +444,7 @@ const App = struct {
         app.* = .{
             .io = io,
             .allocator = allocator,
-            .mutex = .{},
+            .mutex = .init,
             .plants = .{
                 CarrotConfig,
                 RadishConfig,
@@ -460,14 +460,22 @@ const App = struct {
         app.allocator.destroy(app);
     }
 
+    pub fn lock(app: *App) !void {
+        try app.mutex.lock(app.io);
+    }
+
+    pub fn unlock(app: *App) void {
+        app.mutex.unlock(app.io);
+    }
+
     pub fn pushAll(app: *App, sse: *datastar.SSE) !void {
         try app.pushPlantList(sse);
         try app.pushCropCounts(sse);
     }
 
     pub fn pushPlantList(app: *App, sse: *datastar.SSE) !void {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
 
         var w = sse.patchElementsWriter(.{});
         try w.print(
@@ -495,8 +503,8 @@ const App = struct {
     }
 
     pub fn pushCropCounts(app: *App, sse: *datastar.SSE) !void {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
 
         try sse.patchSignals(.{
             .carrots = app.crop_counts[0],
@@ -507,8 +515,8 @@ const App = struct {
     }
 
     pub fn updatePlants(app: *App) !void {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
 
         var has_changes: bool = false;
         for (0..4) |i| {

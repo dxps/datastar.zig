@@ -226,7 +226,7 @@ fn handleConnection(self: *Server, conn: Io.net.Stream) Io.Cancelable!void {
             .params = .{},
             .path = arena.allocator().dupe(u8, request.head.target) catch return error.Canceled,
             .method = request.head.method,
-            .timer = std.time.Timer.start() catch undefined, // live dangerously !
+            .timer = .now(self.io, std.Io.Clock.real),
             .log = self.log,
         };
 

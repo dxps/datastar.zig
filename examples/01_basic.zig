@@ -10,15 +10,15 @@ const PORT = 8081;
 pub const std_options = std.Options{ .log_level = .debug };
 
 var update_count: usize = 1;
-var update_mutex: std.Thread.Mutex = .{};
+var update_mutex: Io.Mutex = .init;
 
 var prng: std.Random.DefaultPrng = .init(0);
 
-fn getCountAndIncrement() usize {
-    update_mutex.lock();
+fn getCountAndIncrement(io: Io) !usize {
+    try update_mutex.lock(io);
     defer {
         update_count += 1;
-        update_mutex.unlock();
+        update_mutex.unlock(io);
     }
     return update_count;
 }
@@ -26,7 +26,7 @@ fn getCountAndIncrement() usize {
 var hotreload_id: u64 = 0;
 
 fn setHotReload(io: Io) !void {
-    const now = try std.Io.Clock.real.now(io);
+    const now = std.Io.Clock.real.now(io);
     prng.seed(@intCast(now.toMilliseconds()));
     hotreload_id = prng.random().int(u64);
     std.log.debug("Hotreload ID {}", .{hotreload_id});
@@ -110,7 +110,7 @@ fn textHtml(http: *HTTPRequest) !void {
     try http.html(
         try std.fmt.allocPrint(http.arena,
             \\<p id="text-html">This is update number {d}</p>
-        , .{getCountAndIncrement()}),
+        , .{try getCountAndIncrement(http.io)}),
     );
 }
 
@@ -137,7 +137,7 @@ fn patchElements(http: *HTTPRequest) !void {
     try sse.patchElementsFmt(
         \\<p id="mf-patch">This is update number {d}</p>
     ,
-        .{getCountAndIncrement()},
+        .{try getCountAndIncrement(http.io)},
         .{},
     );
 }
@@ -184,7 +184,7 @@ fn patchElementsOpts(http: *HTTPRequest) !void {
         else => {
             try w.print(
                 \\<p>This is update number {d}</p>
-            , .{getCountAndIncrement()});
+            , .{try getCountAndIncrement(http.io)});
         },
     }
 }

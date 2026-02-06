@@ -128,14 +128,14 @@ fn postBid(http: *HTTPRequest) !void {
         return error.InvalidID;
     }
 
-    app.mutex.lock();
-    defer app.mutex.unlock();
+    try app.lock();
+    defer app.unlock();
     app.sortCats(.id);
 
     const signals = try http.readSignals(struct { bids: []usize });
     const new_bid = signals.bids[cat_id];
 
-    const now = try Io.Clock.real.now(app.io);
+    const now = Io.Clock.real.now(app.io);
 
     app.cats.items[cat_id].bid = new_bid;
     app.cats.items[cat_id].ts = now;
@@ -153,8 +153,8 @@ fn postSort(http: *HTTPRequest) !void {
     const session = http.getCookie("session") orelse return error.NoSession;
     const filter_id: pubsub.FilterId = .fromSlice(session);
 
-    app.mutex.lock();
-    defer app.mutex.unlock();
+    try app.lock();
+    defer app.unlock();
 
     var opt = try http.readSignals(struct { sort: []const u8 });
     const new_sort: SortType = .fromString(opt.sort);
@@ -239,7 +239,7 @@ const App = struct {
     io: Io,
     allocator: Allocator,
     cats: Cats,
-    mutex: std.Thread.Mutex,
+    mutex: Io.Mutex,
     pubsub: pubsub.PubSub(MQSchema),
     next_session_id: usize = 1,
     sessions: std.StringHashMap(SessionPrefs),
@@ -250,12 +250,20 @@ const App = struct {
         app.* = .{
             .io = io,
             .allocator = allocator,
-            .mutex = .{},
+            .mutex = .init,
             .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
             .cats = try createCats(allocator),
             .sessions = std.StringHashMap(SessionPrefs).init(allocator),
         };
         return app;
+    }
+
+    pub fn lock(app: *App) !void {
+        try app.mutex.lock(app.io);
+    }
+
+    pub fn unlock(app: *App) void {
+        app.mutex.unlock(app.io);
     }
 
     pub fn deinit(app: *App) void {
@@ -269,8 +277,8 @@ const App = struct {
     }
 
     pub fn newSessionID(app: *App) !usize {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
         const s = app.next_session_id;
         app.next_session_id += 1;
 
@@ -287,8 +295,8 @@ const App = struct {
     }
 
     pub fn ensureSession(app: *App, session_id: []const u8) !void {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
 
         if (app.sessions.get(session_id) == null) {
             try app.sessions.put(try app.allocator.dupe(u8, session_id), .{});
@@ -334,8 +342,8 @@ const App = struct {
     }
 
     pub fn pushCatList(app: *App, sse: *datastar.SSE, session: []const u8) !void {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
 
         const sort_prefs = app.sessions.get(session) orelse return error.InvalidSession;
         std.log.info("pushCatList for session {s} with prefs {}", .{ session, sort_prefs });

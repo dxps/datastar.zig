@@ -32,7 +32,7 @@ detach: bool = false, // detached is set if there is any SSE acting on this requ
 replied: bool = false,
 req_payload: ?[]const u8 = null,
 status: std.http.Status = .ok,
-timer: std.time.Timer = undefined,
+timer: std.Io.Timestamp = undefined,
 log: Log = .{},
 
 /// Return the context as the given type
@@ -95,7 +95,7 @@ pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
         .buffer_size = opt.buffer_size,
         .sync = opt.sync,
         .io = http.io,
-        .start_time = try Io.Clock.real.now(http.io),
+        .start_time = Io.Clock.real.now(http.io),
     };
 }
 
