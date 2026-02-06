@@ -440,6 +440,7 @@ const App = struct {
     crop_counts: [4]u32 = [_]u32{ 0, 0, 0, 0 },
 
     pub fn init(io: Io, pubsub_io: Io, allocator: Allocator) !*App {
+        _ = pubsub_io; // autofix
         const app = try allocator.create(App);
         app.* = .{
             .io = io,
@@ -451,7 +452,8 @@ const App = struct {
                 GourdConfig,
                 OnionConfig,
             },
-            .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
+            // .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
+            .pubsub = pubsub.PubSub(MQSchema).init(io, allocator),
         };
         return app;
     }

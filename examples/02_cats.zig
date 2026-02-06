@@ -182,13 +182,17 @@ const App = struct {
     pubsub: pubsub.PubSub(MQSchema),
 
     pub fn init(io: Io, pubsub_io: Io, allocator: Allocator) !*App {
+        _ = pubsub_io; // autofix
         const app = try allocator.create(App);
         app.* = .{
             .io = io,
             .allocator = allocator,
             .mutex = .init,
             .cats = try createCats(allocator),
-            .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
+            // OK, for now pubsub over fibers is completely borked due to the way
+            // timers are in transition - use Threaded IO for pubsub for now
+            // .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
+            .pubsub = pubsub.PubSub(MQSchema).init(io, allocator),
         };
         return app;
     }
