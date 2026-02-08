@@ -20,6 +20,8 @@ with being on the bleeding edge !! You have been warned !!
 | **10-Jan-2026** | `0.16.0-dev.2040+c475f1fcd` | **Juicy Main** changes (Entry point & std refactor) |
 | **19-Jan-2026** | `0.16.0-dev.2193+fc517bd01` | `http.content()`, `http.css()`, `http.sendFile()` |
 | **20-Jan-2026** | `0.16.0-dev.2193+fc517bd01` | `Breaking Changes` - Removed ServerCtx - use type erased ctx in http request |
+| **08-Feb-2026** | `0.16.0-dev.2510` | Still trying to get fibers sort of half reliable. They dont crash, but they dont always work either |
+
 
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
 

@@ -34,7 +34,7 @@ pool_sse: *Io.Threaded,
 pool_public: *Io.Threaded,
 pool_fibers: ?*Io.Evented = null,
 
-io_general: Io,
+io_general: Io, // general IO to be used for normal request handlers
 io_sse: Io,
 io_public: Io,
 io_fibers: ?Io = null,
@@ -63,7 +63,7 @@ pub const Config = struct {
 };
 
 // FD limit configuration
-pub const rlim_t = std.posix.rlim_t;
+pub const rlim_t = posix.rlim_t;
 pub const FDLimit = enum(rlim_t) {
     max = std.math.maxInt(rlim_t),
     _,
@@ -181,32 +181,52 @@ pub fn run(self: *Server) !void {
         };
     }
 
-    // create global app instance
     while (true) {
         const conn = try self.server.accept(self.io);
         if (self.io_fibers) |io_fibers| {
             _ = io_fibers.concurrent(handleConnection, .{ self, conn }) catch |err| {
-                std.log.err("spawn fiber handler error {}\n", .{err});
+                std.log.err("spawn handler in fiber error {}\n", .{err});
                 conn.close(self.io);
-                continue; // ah well failed - try another one, dont exit the loop
+                continue; // ah well failed - try another one, dont exit the loop yet
             };
-        } else {
-            self.group.concurrent(self.io_general, handleConnection, .{ self, conn }) catch |err| {
-                std.log.err("spawn handler error {}\n", .{err});
-                conn.close(self.io);
-                continue; // ah well failed - try another one, dont exit the loop
-            };
+        } else self.group.concurrent(self.io, handleConnection, .{ self, conn }) catch |err| {
+            std.log.err("spawn handler error {}\n", .{err});
+            conn.close(self.io);
+            continue; // ah well failed - try another one, dont exit the loop yet
+        };
+    }
+}
+
+fn nonBlocking(conn: Io.net.Stream) !void {
+    const fd = conn.socket.handle;
+    const fl_raw = posix.system.fcntl(fd, posix.F.GETFL, @as(usize, 0));
+    var fl_flags: usize = @intCast(fl_raw);
+    fl_flags |= @as(usize, 1) << @bitOffsetOf(posix.O, "NONBLOCK");
+
+    while (true) {
+        const rc = posix.system.fcntl(fd, posix.F.SETFL, fl_flags);
+        switch (posix.errno(rc)) {
+            .SUCCESS => break,
+            .INTR => continue,
+            .CANCELED => return error.Canceled,
+            else => |err| return posix.unexpectedErrno(err),
         }
     }
 }
 
 fn handleConnection(self: *Server, conn: Io.net.Stream) Io.Cancelable!void {
-    defer conn.close(self.io);
+    nonBlocking(conn) catch return error.Canceled;
+
+    var close_conn = true;
+    defer if (close_conn) conn.close(self.io);
 
     var read_buffer: [4096]u8 = undefined;
     var write_buffer: [4096]u8 = undefined;
 
-    var reader = conn.reader(self.io, &read_buffer);
+    // var reader = conn.reader(self.io, &read_buffer);
+    // var writer = conn.writer(self.io, &write_buffer);
+
+    var reader = conn.reader(self.io_fibers.?, &read_buffer);
     var writer = conn.writer(self.io, &write_buffer);
 
     var arena: std.heap.ArenaAllocator = .init(self.allocator);
@@ -220,6 +240,7 @@ fn handleConnection(self: *Server, conn: Io.net.Stream) Io.Cancelable!void {
 
         var http = HTTPRequest{
             .io = self.io,
+            .io_fibers = self.io_fibers,
             .ctx = self.ctx,
             .req = &request,
             .arena = arena.allocator(),
@@ -235,7 +256,13 @@ fn handleConnection(self: *Server, conn: Io.net.Stream) Io.Cancelable!void {
         // Anything asking for a Sync SSE connection will detach the request from this inner loop
         // this is because any SSE created over this connection will be treated as the last action
         // in this connection. The trigger for the browser is text/event-stream + chunked encoding
-        if (http.detach) break;
+        if (http.detach) {
+            // if we are running with fibers, then the long SSE handler is a fiber that we have
+            // handed over to, so we dont want to close this connection, thats the job of the
+            // handler instead
+            if (http.disowned) close_conn = false;
+            break;
+        }
     }
 }
 

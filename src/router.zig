@@ -2,8 +2,9 @@ const std = @import("std");
 const HTTPRequest = @import("http_request.zig");
 const Params = @import("params.zig");
 
+const Io = std.Io;
 const Router = @This();
-pub const RouteHandler = *const fn (req: *HTTPRequest) anyerror!void;
+pub const RouteHandlerFn = *const fn (req: *HTTPRequest) anyerror!void;
 
 allocator: std.mem.Allocator,
 root: *Node,
@@ -12,7 +13,8 @@ const Node = struct {
     segment: []const u8 = "",
     is_param: bool = false,
     param_name: []const u8 = "",
-    handlers: [std.enums.values(std.http.Method).len]?RouteHandler = [_]?RouteHandler{null} ** std.enums.values(std.http.Method).len,
+    handlers: [std.enums.values(std.http.Method).len]?RouteHandlerFn = [_]?RouteHandlerFn{null} ** std.enums.values(std.http.Method).len,
+    fiber: [std.enums.values(std.http.Method).len]bool = [_]bool{false} ** std.enums.values(std.http.Method).len,
     children: std.ArrayListUnmanaged(*Node) = .{},
 
     fn deinit(self: *Node, alloc: std.mem.Allocator) void {
@@ -28,7 +30,10 @@ pub fn init(allocator: std.mem.Allocator) !*Router {
     const root = try allocator.create(Node);
     const self = try allocator.create(Router);
     root.* = .{};
-    self.* = .{ .allocator = allocator, .root = root };
+    self.* = .{
+        .allocator = allocator,
+        .root = root,
+    };
     return self;
 }
 
@@ -37,28 +42,34 @@ pub fn deinit(self: *Router) void {
     self.allocator.destroy(self);
 }
 
-// No Context parameter needed - it's already baked into the Router type!
-pub fn get(self: *Router, path: []const u8, handler: RouteHandler) void {
-    self.add(.GET, path, handler) catch unreachable;
+/// GET request
+pub fn get(self: *Router, path: []const u8, handler: RouteHandlerFn) void {
+    self.add(.GET, path, handler, false) catch unreachable;
 }
 
-pub fn post(self: *Router, path: []const u8, handler: RouteHandler) void {
-    self.add(.POST, path, handler) catch unreachable;
+/// GET request - but run it in a fiber instead of a thread, and take
+/// control of the underlying connection
+pub fn sse(self: *Router, path: []const u8, handler: RouteHandlerFn) void {
+    self.add(.GET, path, handler, true) catch unreachable;
 }
 
-pub fn put(self: *Router, path: []const u8, handler: RouteHandler) void {
-    self.add(.PUT, path, handler) catch unreachable;
+pub fn post(self: *Router, path: []const u8, handler: RouteHandlerFn) void {
+    self.add(.POST, path, handler, false) catch unreachable;
 }
 
-pub fn patch(self: *Router, path: []const u8, handler: RouteHandler) void {
-    self.add(.PATCH, path, handler) catch unreachable;
+pub fn put(self: *Router, path: []const u8, handler: RouteHandlerFn) void {
+    self.add(.PUT, path, handler, false) catch unreachable;
 }
 
-pub fn delete(self: *Router, path: []const u8, handler: RouteHandler) void {
-    self.add(.DELETE, path, handler) catch unreachable;
+pub fn patch(self: *Router, path: []const u8, handler: RouteHandlerFn) void {
+    self.add(.PATCH, path, handler, false) catch unreachable;
 }
 
-pub fn add(self: *Router, method: std.http.Method, path: []const u8, handler: RouteHandler) !void {
+pub fn delete(self: *Router, path: []const u8, handler: RouteHandlerFn) void {
+    self.add(.DELETE, path, handler, false) catch unreachable;
+}
+
+pub fn add(self: *Router, method: std.http.Method, path: []const u8, handler: RouteHandlerFn, fiber: bool) !void {
     var current = self.root;
     var it = std.mem.tokenizeScalar(u8, path, '/');
 
@@ -91,8 +102,13 @@ pub fn add(self: *Router, method: std.http.Method, path: []const u8, handler: Ro
         }
     }
     current.handlers[@intFromEnum(method)] = handler;
+
     // on bootup - just always print the routes in effect
-    std.log.debug("  > {t} {s}", .{ method, path });
+    std.log.debug("  > {t} {s}{s}", .{
+        method,
+        path,
+        if (fiber) " (Long SSE)" else "",
+    });
 }
 
 pub fn dispatch(self: *Router, http: *HTTPRequest) !void {
@@ -137,6 +153,11 @@ pub fn dispatch(self: *Router, http: *HTTPRequest) !void {
 
     const method_idx = @intFromEnum(http.method);
     if (current.handlers[method_idx]) |h| {
+        std.log.debug("About to invoke handler for {t}{s}", .{
+            http.method,
+            http.path,
+        });
+
         h(http) catch |err| {
             log.err(http, err, .internal_server_error);
             try http.respond("Error", .internal_server_error);

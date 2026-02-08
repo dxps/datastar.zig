@@ -37,7 +37,7 @@ pub fn main(init: std.process.Init) !void {
         const r = server.router;
         r.get("/", index);
         r.get("/style.css", styleCss);
-        r.get("/cats", catsList);
+        r.sse("/cats", catsList);
         r.post("/bid/:id", postBid);
     }
 
