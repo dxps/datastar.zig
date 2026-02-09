@@ -215,7 +215,8 @@ fn nonBlocking(conn: Io.net.Stream) !void {
 }
 
 fn handleConnection(self: *Server, conn: Io.net.Stream) Io.Cancelable!void {
-    nonBlocking(conn) catch return error.Canceled;
+    // dont do this until Kqueue is complete please
+    // nonBlocking(conn) catch return error.Canceled;
 
     var close_conn = true;
     defer if (close_conn) conn.close(self.io);
@@ -223,10 +224,7 @@ fn handleConnection(self: *Server, conn: Io.net.Stream) Io.Cancelable!void {
     var read_buffer: [4096]u8 = undefined;
     var write_buffer: [4096]u8 = undefined;
 
-    // var reader = conn.reader(self.io, &read_buffer);
-    // var writer = conn.writer(self.io, &write_buffer);
-
-    var reader = conn.reader(self.io_fibers.?, &read_buffer);
+    var reader = conn.reader(self.io, &read_buffer);
     var writer = conn.writer(self.io, &write_buffer);
 
     var arena: std.heap.ArenaAllocator = .init(self.allocator);
