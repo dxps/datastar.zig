@@ -29,14 +29,7 @@ watch: bool = false,
 fd_limit: ?FDLimit = null,
 
 group: Io.Group = .init,
-pool_general: *Io.Threaded,
-pool_sse: *Io.Threaded,
-pool_public: *Io.Threaded,
 pool_fibers: ?*Io.Evented = null,
-
-io_general: Io, // general IO to be used for normal request handlers
-io_sse: Io,
-io_public: Io,
 io_fibers: ?Io = null,
 
 pub const Concurrency = enum {
@@ -87,29 +80,6 @@ pub fn init(process_init: std.process.Init, config: Config) !*Server {
     var self: *Server = try allocator.create(Server);
     errdefer allocator.destroy(self);
 
-    self.pool_general = try allocator.create(std.Io.Threaded);
-    errdefer allocator.destroy(self.pool_general);
-
-    self.pool_general.* = std.Io.Threaded.init(allocator, .{
-        .concurrent_limit = .limited(config.threads),
-        .stack_size = config.stack_size,
-        .environ = .empty,
-    });
-
-    self.pool_sse = try allocator.create(std.Io.Threaded);
-    self.pool_sse.* = std.Io.Threaded.init(allocator, .{
-        .concurrent_limit = .limited(config.sse_threads),
-        .stack_size = config.sse_stack_size,
-        .environ = .empty,
-    });
-
-    self.pool_public = try allocator.create(std.Io.Threaded);
-    self.pool_public.* = std.Io.Threaded.init(allocator, .{
-        .concurrent_limit = .limited(config.public_sse_threads),
-        .stack_size = config.sse_stack_size,
-        .environ = .empty,
-    });
-
     self.pool_fibers = null;
     self.io_fibers = null;
     if (config.sse_concurrency == .fibers) {
@@ -132,14 +102,6 @@ pub fn init(process_init: std.process.Init, config: Config) !*Server {
         .arena = std.heap.ArenaAllocator.init(allocator),
         .watch = config.watch,
         .fd_limit = config.fd_limit,
-        .pool_general = self.pool_general,
-        .pool_sse = self.pool_sse,
-        .pool_public = self.pool_public,
-        .pool_fibers = self.pool_fibers,
-        .io_general = self.pool_general.io(),
-        .io_sse = self.pool_sse.io(),
-        .io_public = self.pool_public.io(),
-        .io_fibers = self.io_fibers,
     };
     errdefer self.arena.deinit();
     self.router = try Router.init(self.arena.allocator());
