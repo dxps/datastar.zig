@@ -294,6 +294,13 @@ pub fn respond(http: *HTTPRequest, content: []const u8, status: std.http.Status)
     return http.req.respond(content, .{ .status = status });
 }
 
+pub fn redirect(http: *HTTPRequest, path: []const u8) std.http.Server.Request.ExpectContinueError!void {
+    return http.req.respond("", .{
+        .extra_headers = &.{.{ .name = "Location", .value = path }},
+        .status = .see_other,
+    });
+}
+
 /// return the mime type based on the file extension
 pub fn mimeTypeByExtension(filename: []const u8) []const u8 {
     const ext = std.fs.path.extension(filename);
@@ -341,7 +348,7 @@ pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8
     }
 
     const file = dir.openFile(self.io, path, .{}) catch |err| {
-        std.log.err("failed to open file {s} : {}", .{ path, err });
+        // std.log.err("failed to open file {s} : {}", .{ path, err });
         return err;
     };
     defer file.close(self.io);
