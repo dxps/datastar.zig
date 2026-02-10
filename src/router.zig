@@ -47,6 +47,9 @@ pub fn deinit(self: *Router) void {
 /// check if the same name file exists in the static dir, and fetch that
 pub fn static(self: *Router, path: []const u8) void {
     self.static_dir = path;
+    std.log.debug("  > STATIC files served from '{s}'", .{
+        path,
+    });
 }
 
 /// GET request
@@ -122,9 +125,16 @@ pub fn dispatch(self: *Router, http: *HTTPRequest) !void {
     var params = Params{};
     const log = http.log;
 
+    // Sanitize the path - if it has ".." or various dodgy attack vectors, then reject it
+    if (std.mem.find(u8, http.path, "..") != null) {
+        return http.respond("Not Found", .not_found);
+    }
+
     const target = http.path;
     const query_index = std.mem.indexOfScalar(u8, target, '?') orelse target.len;
     const path_only = target[0..query_index];
+
+    var processed: bool = false;
 
     var it = std.mem.tokenizeScalar(u8, path_only, '/');
     var current = self.root;
@@ -145,7 +155,19 @@ pub fn dispatch(self: *Router, http: *HTTPRequest) !void {
                 break;
             }
         }
-        if (match) |m| current = m else return http.respond("Not Found", .not_found);
+
+        if (match) |m| current = m else {
+            // didnt find it - check if its a static file asset to serve up
+            if (self.static_dir) |sd| {
+                var extended_path: Io.Writer.Allocating = .init(http.arena);
+                try extended_path.writer.print("{s}{s}", .{ sd, http.path });
+                std.log.debug("Checking if path {s} is for a static file", .{extended_path.written()});
+                http.sendFile(extended_path.written(), null) catch return http.respond("Not Found", .not_found);
+                processed = true;
+            } else {
+                return http.respond("Not Found", .not_found);
+            }
+        }
     }
 
     http.params = params;
@@ -156,31 +178,19 @@ pub fn dispatch(self: *Router, http: *HTTPRequest) !void {
     // TODO - apply the onBefore middlewares
     // TODO - errdefer the onError middlewares
 
-    var processed: bool = false;
-
     const method_idx = @intFromEnum(http.method);
-    if (current.handlers[method_idx]) |h| {
-        std.log.debug("About to invoke handler for {t}{s}", .{
-            http.method,
-            http.path,
-        });
-
-        h(http) catch |err| {
-            log.err(http, err, .internal_server_error);
-            try http.respond("Error", .internal_server_error);
-        };
-        processed = true;
+    if (!processed) {
+        if (current.handlers[method_idx]) |h| {
+            h(http) catch |err| {
+                log.err(http, err, .internal_server_error);
+                try http.respond("Error", .internal_server_error);
+            };
+            processed = true;
+        }
     }
 
     if (processed) {
         // TODO - run middlewares onAfter
-    } else {
-        // didnt find it - check if its a static file asset to serve up
-        if (self.static_dir) |sd| {
-            var extended_path: Io.Writer.Allocating = .init(http.arena);
-            try extended_path.writer.print("{s}/{s}", .{ sd, http.path });
-            std.log.debug("Checking if path {s} is for a static file", .{http.path});
-        }
     }
 
     if (!http.replied) {
