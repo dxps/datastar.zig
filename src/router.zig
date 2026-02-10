@@ -8,6 +8,7 @@ pub const RouteHandlerFn = *const fn (req: *HTTPRequest) anyerror!void;
 
 allocator: std.mem.Allocator,
 root: *Node,
+static_dir: ?[]const u8 = null,
 
 const Node = struct {
     segment: []const u8 = "",
@@ -38,8 +39,20 @@ pub fn init(allocator: std.mem.Allocator) !*Router {
 }
 
 pub fn deinit(self: *Router) void {
+    if (self.static_dir) |d| {
+        self.allocator.free(d);
+    }
     self.root.deinit(self.allocator);
     self.allocator.destroy(self);
+}
+
+/// declare a path to fetch static assets from - any URL that cant be found, 
+/// check if the same name file exists in the static dir, and fetch that 
+pub fn static(self: *Router, path: []const u8) !void {
+    if (self.static_dir) |d| {
+        self.allocator.free(d);
+    }
+    self.static_dir = try (self.allocator.dupe(u8, path));
 }
 
 /// GET request

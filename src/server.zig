@@ -114,23 +114,11 @@ pub fn useContext(self: *Server, ctx: *anyopaque) void {
 
 pub fn deinit(self: *Server) void {
     self.arena.deinit();
-
-    // 2. Deinit the Pools (Stop threads)
-    self.pool_general.deinit();
-    self.pool_sse.deinit();
-    self.pool_public.deinit();
-
-    // 3. Free the Pool Structs
-    self.allocator.destroy(self.pool_general);
-    self.allocator.destroy(self.pool_sse);
-    self.allocator.destroy(self.pool_public);
-
-    // 4. Free Server
     self.allocator.destroy(self);
 }
 
 pub fn concurrent(self: *Server, function: anytype, args: std.meta.ArgsTuple(@TypeOf(function))) Io.ConcurrentError!void {
-    return self.group.concurrent(self.io_general, function, args);
+    return self.group.concurrent(self.io, function, args);
 }
 
 pub fn run(self: *Server) !void {
