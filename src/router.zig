@@ -46,8 +46,8 @@ pub fn deinit(self: *Router) void {
     self.allocator.destroy(self);
 }
 
-/// declare a path to fetch static assets from - any URL that cant be found, 
-/// check if the same name file exists in the static dir, and fetch that 
+/// declare a path to fetch static assets from - any URL that cant be found,
+/// check if the same name file exists in the static dir, and fetch that
 pub fn static(self: *Router, path: []const u8) !void {
     if (self.static_dir) |d| {
         self.allocator.free(d);
@@ -180,6 +180,13 @@ pub fn dispatch(self: *Router, http: *HTTPRequest) !void {
 
     if (processed) {
         // TODO - run middlewares onAfter
+    } else {
+        // didnt find it - check if its a static file asset to serve up
+        if (self.static_dir) |sd| {
+            var extended_path: Io.Writer.Allocating = .init(http.arena);
+            try extended_path.writer.print("{s}/{s}", .{ sd, http.path });
+            std.log.debug("Checking if path {s} is for a static file", .{http.path});
+        }
     }
 
     if (!http.replied) {

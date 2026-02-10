@@ -49,10 +49,7 @@ pub const Config = struct {
     threads: u64 = 32,
     // Debug mode consumes a lot more stack, due to carrying extra debug info
     stack_size: usize = if (builtin.mode == .Debug) 16 * 1024 * 1024 else 2 * 1024 * 1024,
-    sse_threads: u64 = 1024,
-    public_sse_threads: u64 = 32,
     sse_concurrency: Concurrency = .threads,
-    sse_stack_size: usize = if (builtin.mode == .Debug) 16 * 1024 * 1024 else 2 * 1024 * 1024,
 };
 
 // FD limit configuration
