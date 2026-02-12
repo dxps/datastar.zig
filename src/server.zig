@@ -79,15 +79,15 @@ pub fn init(process_init: std.process.Init, config: Config) !*Server {
 
     self.pool_fibers = null;
     self.io_fibers = null;
-    if (config.sse_concurrency == .fibers) {
-        self.pool_fibers = try allocator.create(std.Io.Kqueue);
-        const pool_fibers = self.pool_fibers.?;
-        try std.Io.Kqueue.init(pool_fibers, allocator, .{});
-        self.io_fibers = pool_fibers.io();
-        std.log.debug("🧵 HTTP Server Using Kqueue Fibers for handlers (Experimental)", .{});
-    } else {
-        std.log.debug("🤹‍♂️ HTTP Server Using OS Threads for handlers", .{});
-    }
+    // if (config.sse_concurrency == .fibers) {
+    //     self.pool_fibers = try allocator.create(std.Io.Kqueue);
+    //     const pool_fibers = self.pool_fibers.?;
+    //     try std.Io.Kqueue.init(pool_fibers, allocator, .{});
+    //     self.io_fibers = pool_fibers.io();
+    //     std.log.debug("🧵 HTTP Server Using Kqueue Fibers for handlers (Experimental)", .{});
+    // } else {
+    std.log.debug("🤹‍♂️ HTTP Server Using OS Threads for handlers", .{});
+    // }
 
     self.* = .{
         .process_init = process_init,

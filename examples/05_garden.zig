@@ -28,8 +28,8 @@ pub fn main(init: std.process.Init) !void {
         .watch = true,
         .fd_limit = .max,
         .log = .{ .theme = .newwave },
-        .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
-        .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
+        // .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
+        // .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
     });
     defer server.deinit();
 

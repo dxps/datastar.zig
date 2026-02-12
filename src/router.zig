@@ -161,7 +161,6 @@ pub fn dispatch(self: *Router, http: *HTTPRequest) !void {
             if (self.static_dir) |sd| {
                 var extended_path: Io.Writer.Allocating = .init(http.arena);
                 try extended_path.writer.print("{s}{s}", .{ sd, http.path });
-                std.log.debug("Checking if path {s} is for a static file", .{extended_path.written()});
                 http.sendFile(extended_path.written(), null) catch |err| {
                     switch (err) {
                         error.FileNotFound => return http.respond("Not Found", .not_found),

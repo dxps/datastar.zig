@@ -27,8 +27,8 @@ pub fn main(process_init: std.process.Init) !void {
         .port = PORT,
         .watch = true,
         .fd_limit = .limited(2000),
-        .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
-        .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
+        // .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
+        // .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
     });
     defer server.deinit();
 
