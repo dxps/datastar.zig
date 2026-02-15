@@ -6,8 +6,8 @@
     .dependencies = .{
         .pubsub = .{
             // .path = "../pubsub.zig",
-            .url = "git+https://github.com/zigster64/pubsub.zig#b2af7f69508cfdf9620e6ddf508896dc1a44f7e1",
-            .hash = "pubsub-0.0.0-6dy2AYOkAADMSlmPCxjKD8cYTfjSjd-ZLFauHy43FGv7",
+            .url = "git+https://github.com/zigster64/pubsub.zig#44e31d185921e97803ea76e212aa8714c495fa80",
+            .hash = "pubsub-0.0.0-6dy2Ae6oAABvlDRhLSlR8GSSl-ohFi4Nt3kg2FYvXLh8",
         },
     },
     .paths = .{
