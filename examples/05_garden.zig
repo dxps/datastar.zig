@@ -83,9 +83,8 @@ fn plantList(http: *HTTPRequest) !void {
 
     try mq.subscribe(.plants);
     try mq.subscribe(.crops);
-    mq.setTimeout(.fromSeconds(30));
 
-    while (try mq.next()) |event| {
+    while (try mq.nextTimeout(.fromSeconds(30))) |event| {
         switch (event) {
             .msg => |m| {
                 std.log.info("Event: {}", .{m.topic});

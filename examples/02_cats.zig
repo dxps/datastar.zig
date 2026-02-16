@@ -63,9 +63,8 @@ fn catsList(http: *HTTPRequest) !void {
     defer mq.deinit();
 
     try mq.subscribe(.cats);
-    mq.setTimeout(.fromSeconds(30));
 
-    while (try mq.next()) |event| {
+    while (try mq.nextTimeout(.fromSeconds(30))) |event| {
         switch (event) {
             .msg => pushCatList(app, &sse) catch |err|
                 return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{

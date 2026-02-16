@@ -89,9 +89,8 @@ fn catsList(http: *HTTPRequest) !void {
     mq.setFilter(.fromSlice(session));
     try mq.subscribe(.cats);
     try mq.subscribe(.prefs);
-    mq.setTimeout(.fromSeconds(30));
 
-    while (try mq.next()) |event| {
+    while (try mq.nextTimeout(.fromSeconds(30))) |event| {
         std.log.info("Session {s} got event {f}", .{ session, event });
         switch (event) {
             .msg => |m| switch (m.topic) {

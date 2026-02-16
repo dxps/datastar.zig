@@ -471,10 +471,9 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
 
     // Subscribe to the message broker
     try mq.subscribe(.cats); 
-    mq.setTimeout(.fromSeconds(30));
 
     // loop forever over the events
-    while (try mq.next()) |event| {
+    while (try mq.nextTimeout(.fromSeconds(30))) |event| {
         switch (event) {
             .msg => try pushCatList(app, &sse),
             .timeout => try sse.keepalive(),
