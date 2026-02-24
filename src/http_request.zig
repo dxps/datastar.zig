@@ -358,6 +358,11 @@ pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8
         break :mime mimeTypeByExtension(path);
     };
 
+    // TODO - if the file size < some reasonable threshold
+    // then set the content-length, and use req.respond
+    // ...
+    // otherwise, do this streaming in 4k chunk method below
+
     // stream the source file to the response, in 4k chunks
     var buffer: [4096]u8 = undefined;
     var body_writer = try self.req.respondStreaming(
