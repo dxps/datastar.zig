@@ -8,6 +8,7 @@ const SSEOptions = datastar.SSEOptions;
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
+const posix = std.posix;
 
 const HTTPRequest = @This();
 
@@ -102,8 +103,8 @@ pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
 }
 
 const default_headers = &[_]std.http.Header{
-    .{ .name = "connection", .value = "keep-alive" },
-    .{ .name = "x-powered-by", .value = "datastar.zig" },
+    .{ .name = "Connection", .value = "keep-alive" },
+    .{ .name = "X-Powered-By", .value = "datastar.zig" },
 };
 
 /// use this to construct extra_headers when creating any response
@@ -353,46 +354,35 @@ pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8
     };
     defer file.close(self.io);
 
+    // get the size of the file
+    const stat = try file.stat(self.io);
+
+    // get a reference to the file contents
+    const mapped_memory = try posix.mmap(
+        null,
+        stat.size,
+        .{ .READ = true, .WRITE = false, .EXEC = false },
+        .{ .TYPE = .PRIVATE },
+        file.handle,
+        0,
+    );
+    defer posix.munmap(mapped_memory);
+
+    // Hint to the kernel that we will read this sequentially
+    try posix.madvise(mapped_memory.ptr, stat.size, posix.MADV.SEQUENTIAL);
+
     const mt = mime: {
         if (mime_type) |m| break :mime m;
         break :mime mimeTypeByExtension(path);
     };
 
-    // TODO - if the file size < some reasonable threshold
-    // then set the content-length, and use req.respond
-    // ...
-    // otherwise, do this streaming in 4k chunk method below
+    try self.req.respond(mapped_memory, .{
+        .extra_headers = try self.mergeHeaders(&.{
+            .{ .name = "content-type", .value = mt },
+        }),
+    });
 
-    // stream the source file to the response, in 4k chunks
-    var buffer: [4096]u8 = undefined;
-    var body_writer = try self.req.respondStreaming(
-        &buffer,
-        .{
-            .respond_options = .{
-                .extra_headers = try self.mergeHeaders(&.{
-                    .{ .name = "content-type", .value = mt },
-                }),
-            },
-        },
-    );
     self.replied = true;
-
-    var copy_buffer: [4096]u8 = undefined;
-    const buffers = &[_][]u8{&copy_buffer};
-
-    while (true) {
-        const bytes_read = file.readStreaming(self.io, buffers) catch |err| {
-            switch (err) {
-                error.EndOfStream => break,
-                else => return err,
-            }
-        };
-        if (bytes_read == 0) break;
-
-        try body_writer.writer.writeAll(copy_buffer[0..bytes_read]);
-    }
-
-    try body_writer.end();
 }
 
 test "mimeTypeByExtension" {

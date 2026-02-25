@@ -168,6 +168,7 @@ pub fn dispatch(self: *Router, http: *HTTPRequest) !void {
                     }
                 };
                 processed = true;
+                break;
             } else {
                 return http.respond("Not Found", .not_found);
             }
