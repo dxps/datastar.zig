@@ -9,7 +9,7 @@ https://github.com/starfederation/datastar/blob/develop/sdk/ADR.md
 .. and passes the official Datastar test cases.
 
 Versions :
-- Datastar 1.0.0-RC7
+- Datastar 1.0.0-RC8
 - Zig 0.16-dev
 
 NOTE - Zig 0.16-dev has frequent breaking changes, and will for while. Keep this in mind if having fun
@@ -122,7 +122,7 @@ fn index(http: *HTTPRequest) !void {
         \\<!DOCTYPE html>
         \\<head>
         \\  <script type="module"
-        \\    src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.7/bundles/datastar.js">
+        \\    src="https://cdn.jsdelivr.net/gh/starfederation/datastar@1.0.0-RC.8/bundles/datastar.js">
         \\  </script>
         \\</head>
 
@@ -806,7 +806,7 @@ browser, then pause for 100ms and repeat, to provide a smooth animation of the S
 
 ![NewSSE vs NewSSESync](docs/images/newsse_newssesync.png)
 
-## Namespaces - SVG and MathML (Datastar RC7 feature)
+## Namespaces - SVG and MathML (Datastar RC7+ feature)
 
 `patchElements()` works great when morphing small fragments into existing DOM content, using the element ID,
 or other selectors.

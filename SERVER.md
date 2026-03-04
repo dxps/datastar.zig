@@ -413,7 +413,7 @@ browser, then pause for 100ms and repeat, to provide a smooth animation of the S
 
 ![NewSSE vs NewSSESync](docs/images/newsse_newssesync.png)
 
-## Namespaces - SVG and MathML (Datastar RC7 feature)
+## Namespaces - SVG and MathML (Datastar RC7+ feature)
 
 `patchElements()` works great when morphing small fragments into existing DOM content, using the element ID,
 or other selectors.
