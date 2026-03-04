@@ -1,24 +1,48 @@
 const std = @import("std");
 const datastar = @import("datastar.zig");
 const Params = @import("params.zig");
+const Log = @import("log.zig");
 
 const SSE = datastar.SSE;
 const SSEOptions = datastar.SSEOptions;
 
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
+const posix = std.posix;
 
 const HTTPRequest = @This();
 
+/// Member data of the HTTPRequest context
+/// We want to store
+///   - Some global state vars for arena and io
+///   - The raw request struct
+///   - Parsed params from the request
+///   - detached flag - if this is a long lived SSE, tells the dispatcher loop to not expect more requests this connection
+///   - extra headers to be applied when the response is created
+///   - time taken for the handler to be processed
+///   - status code for the response
 req: *std.http.Server.Request,
 io: Io,
+io_fibers: ?Io = null,
+ctx: ?*anyopaque = null,
 arena: std.mem.Allocator,
 params: Params,
 path: []const u8 = "",
 method: std.http.Method = .GET,
 extra_headers: ?[]const std.http.Header = null,
 detach: bool = false, // detached is set if there is any SSE acting on this request - which stops it looping looking for more requests on the same connection
+disowned: bool = false, // if its detached AND we are using fibers, then the connection is disowned
+replied: bool = false,
 req_payload: ?[]const u8 = null,
+status: std.http.Status = .ok,
+timer: std.Io.Timestamp = undefined,
+log: Log = .{},
+
+/// Return the context as the given type
+pub fn getCtx(http: *HTTPRequest, T: type) T {
+    const ptr = http.ctx orelse std.debug.panic("Attempted to access null context", .{});
+    return @ptrCast(@alignCast(ptr));
+}
 
 /// Return a new SSE object for a simple 1 shot response
 pub fn NewSSE(http: *HTTPRequest) !SSE {
@@ -67,34 +91,35 @@ pub fn NewSSEOpt(http: *HTTPRequest, opt: SSEOptions) !SSE {
         try res.flush();
     }
 
+    http.replied = true;
     return .{
         .stream = res,
         .output_buffer = allocating_writer,
         .buffer_size = opt.buffer_size,
         .sync = opt.sync,
         .io = http.io,
-        .start_time = try Io.Clock.real.now(http.io),
+        .start_time = Io.Clock.real.now(http.io),
     };
 }
+
+const default_headers = &[_]std.http.Header{
+    .{ .name = "Connection", .value = "keep-alive" },
+    .{ .name = "X-Powered-By", .value = "datastar.zig" },
+};
 
 /// use this to construct extra_headers when creating any response
 /// it will pull in self.extra_headers, and merge them with the new set
 /// to provide a complete set for the actual request
 /// See http.setCookie() for an example where this is needed
 pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const std.http.Header {
-    const defaults = &[_]std.http.Header{
-        .{ .name = "connection", .value = "keep-alive" },
-        .{ .name = "x-powered-by", .value = "datastar.zig" },
-    };
-
     const stored_extras = if (self.extra_headers) |h| h else &[_]std.http.Header{};
-    const total_len = defaults.len + stored_extras.len + extra.len;
+    const total_len = default_headers.len + stored_extras.len + extra.len;
     const combined = try self.arena.alloc(std.http.Header, total_len);
 
     var cursor: usize = 0;
 
-    @memcpy(combined[cursor..][0..defaults.len], defaults);
-    cursor += defaults.len;
+    @memcpy(combined[cursor..][0..default_headers.len], default_headers);
+    cursor += default_headers.len;
 
     if (stored_extras.len > 0) {
         @memcpy(combined[cursor..][0..stored_extras.len], stored_extras);
@@ -110,6 +135,7 @@ pub fn mergeHeaders(self: *HTTPRequest, extra: []const std.http.Header) ![]const
 
 // send generic data, with given mime type
 pub fn sendData(self: *HTTPRequest, content: []const u8, mime_type: []const u8) !void {
+    self.replied = true;
     try self.req.respond(
         content,
         .{ .extra_headers = try self.mergeHeaders(&.{.{ .name = "content-type", .value = mime_type }}) },
@@ -161,6 +187,8 @@ pub fn json(self: *HTTPRequest, content: anytype) !void {
 
     try std.json.Stringify.value(content, .{}, &body_writer.writer);
     try body_writer.end();
+
+    self.replied = true;
 }
 
 /// get just the path without the query params
@@ -171,9 +199,8 @@ pub fn getPathOnly(self: HTTPRequest) []const u8 {
 
 /// extract the full query params from the request
 pub fn query(self: HTTPRequest) ?[]const u8 {
-    const target = self.path;
-    const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return null;
-    return target[query_idx + 1 ..];
+    const query_idx = std.mem.indexOfScalar(u8, self.path, '?') orelse return null;
+    return self.path[query_idx + 1 ..];
 }
 
 /// read Datastar signals from the request into the given struct type, return an instance of this struct
@@ -249,7 +276,7 @@ pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8 {
             while (cookie_it.next()) |pair| {
                 const trimmed = std.mem.trim(u8, pair, " ");
 
-                if (std.mem.indexOfScalar(u8, trimmed, '=')) |idx| {
+                if (std.mem.findScalar(u8, trimmed, '=')) |idx| {
                     const key = trimmed[0..idx];
 
                     if (std.mem.eql(u8, key, name)) {
@@ -260,6 +287,19 @@ pub fn getCookie(self: *HTTPRequest, name: []const u8) ?[]const u8 {
         }
     }
     return null;
+}
+
+/// Wrapper around raw std.http.Server.Request.respond, where we save the status
+pub fn respond(http: *HTTPRequest, content: []const u8, status: std.http.Status) std.http.Server.Request.ExpectContinueError!void {
+    http.status = status;
+    return http.req.respond(content, .{ .status = status });
+}
+
+pub fn redirect(http: *HTTPRequest, path: []const u8) std.http.Server.Request.ExpectContinueError!void {
+    return http.req.respond("", .{
+        .extra_headers = &.{.{ .name = "Location", .value = path }},
+        .status = .see_other,
+    });
 }
 
 /// return the mime type based on the file extension
@@ -283,48 +323,66 @@ pub fn mimeTypeByExtension(filename: []const u8) []const u8 {
     return "application/octet-stream";
 }
 
+/// use this function to sanity check the contents of a filename param
+pub fn sanitizeFileParam(_: *HTTPRequest, filename: []const u8) !void {
+    if (filename.len < 1 or filename.len > 256 or
+        std.mem.indexOfScalar(u8, filename, 0) != null or
+        std.mem.indexOf(u8, filename, "..") != null or
+        std.mem.indexOf(u8, filename, "/") != null or
+        std.mem.indexOf(u8, filename, "\\") != null)
+    {
+        return error.InvalidFilename;
+    }
+}
+
 /// send a file response - pass a filename, and on optional mime_type
 /// if the mime_type is null, will calculate using the obove function
 pub fn sendFile(self: *HTTPRequest, filename: []const u8, mime_type: ?[]const u8) !void {
     if (filename.len < 1) return error.InvalidFilename;
+
+    // sanitize the filename to prevent path traversal attacks
+
     const dir = std.Io.Dir.cwd();
     var path = filename;
     if (path[0] == '/') {
         path = path[1..]; // path must be relative
     }
 
-    const file = try dir.openFile(self.io, path, .{});
+    const file = dir.openFile(self.io, path, .{}) catch |err| {
+        // std.log.err("failed to open file {s} : {}", .{ path, err });
+        return err;
+    };
     defer file.close(self.io);
+
+    // get the size of the file
+    const stat = try file.stat(self.io);
+
+    // get a reference to the file contents
+    const mapped_memory = try posix.mmap(
+        null,
+        stat.size,
+        .{ .READ = true, .WRITE = false, .EXEC = false },
+        .{ .TYPE = .PRIVATE },
+        file.handle,
+        0,
+    );
+    defer posix.munmap(mapped_memory);
+
+    // Hint to the kernel that we will read this sequentially
+    try posix.madvise(mapped_memory.ptr, stat.size, posix.MADV.SEQUENTIAL);
 
     const mt = mime: {
         if (mime_type) |m| break :mime m;
         break :mime mimeTypeByExtension(path);
     };
 
-    // stream the source file to the response, in 4k chunks
-    var buffer: [4096]u8 = undefined;
-    var body_writer = try self.req.respondStreaming(
-        &buffer,
-        .{
-            .respond_options = .{
-                .extra_headers = try self.mergeHeaders(&.{
-                    .{ .name = "content-type", .value = mt },
-                }),
-            },
-        },
-    );
+    try self.req.respond(mapped_memory, .{
+        .extra_headers = try self.mergeHeaders(&.{
+            .{ .name = "content-type", .value = mt },
+        }),
+    });
 
-    var copy_buffer: [4096]u8 = undefined;
-    const buffers = &[_][]u8{&copy_buffer};
-
-    while (true) {
-        const bytes_read = try file.readStreaming(self.io, buffers);
-        if (bytes_read == 0) break;
-
-        try body_writer.writer.writeAll(copy_buffer[0..bytes_read]);
-    }
-
-    try body_writer.end();
+    self.replied = true;
 }
 
 test "mimeTypeByExtension" {

@@ -4,8 +4,8 @@ pub const pubsub = @import("pubsub");
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
 
-pub const Server = @import("server.zig").Server;
-pub const HTTPRequest = @import("http_request.zig");
+pub const HTTPServer = @import("server.zig");
+pub const HTTPRequest = HTTPServer.HTTPRequest;
 pub const Params = @import("params.zig");
 
 pub const Command = enum {
@@ -126,7 +126,7 @@ pub const SSE = struct {
     // Sends a keepalive packet on a connected SSE
     // this is a HTML patchElement with no id, sending the time elapsed inside the SSE, in seconds
     pub fn keepalive(self: *SSE) !void {
-        const now = try Io.Clock.real.now(self.io);
+        const now = Io.Clock.real.now(self.io);
         try self.patchElementsFmt(
             \\<keepalive data-time="{}" />
         , .{self.start_time.durationTo(now).toSeconds()}, .{});
@@ -236,14 +236,14 @@ pub fn readSignals(comptime T: type, arena: std.mem.Allocator, req: *std.http.Se
     switch (req.head.method) {
         .GET => {
             const target = req.head.target;
-            const query_idx = std.mem.indexOfScalar(u8, target, '?') orelse return error.MissingDatastarKey;
+            const query_idx = std.mem.findScalar(u8, target, '?') orelse return error.MissingDatastarKey;
             const query_string = target[query_idx + 1 ..];
 
             var it = std.mem.tokenizeScalar(u8, query_string, '&');
             while (it.next()) |pair| {
                 if (std.mem.startsWith(u8, pair, "datastar=")) {
                     const encoded_val = pair["datastar=".len..];
-                    const decoded = try Server.urlDecode(arena, encoded_val);
+                    const decoded = try HTTPServer.urlDecode(arena, encoded_val);
 
                     return std.json.parseFromSliceLeaky(
                         T,
@@ -445,7 +445,7 @@ pub const Message = struct {
 
         var rest = bytes;
 
-        while (std.mem.indexOfScalar(u8, rest, '\n')) |idx| {
+        while (std.mem.findScalar(u8, rest, '\n')) |idx| {
             const line = rest[0 .. idx + 1];
 
             // Start a line if we aren't already in one

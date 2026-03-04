@@ -1,55 +1,60 @@
 const std = @import("std");
 const datastar = @import("datastar");
+const options = @import("options");
+const HTTPRequest = datastar.HTTPRequest;
+
 const pubsub = datastar.pubsub;
 
 const Io = std.Io;
-const HTTPRequest = datastar.HTTPRequest;
 const Allocator = std.mem.Allocator;
 
 const PORT = 8082;
 
+pub const std_options = std.Options{ .log_level = .debug };
+
 // This example demonstrates a simple auction site that uses
 // SSE and pub/sub to have realtime updates of bids on a Cat auction
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    // Create the global app instance
-    var app = try App.init(io, allocator);
-    defer app.deinit();
-
     // create the server
-    const HTTPServer = datastar.Server(*App);
-    var server = try HTTPServer.initIp6(io, allocator, PORT);
-    server.setContext(app);
+    var server = try datastar.HTTPServer.init(init, .{
+        .port = PORT,
+        .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
+        .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
+        .watch = true,
+        .fd_limit = .limited(2048),
+    });
     defer server.deinit();
+
+    // Create the global app instance and attach it to the server
+    var app = try App.init(server.io, server.io_fibers orelse server.io, server.allocator);
+    defer app.deinit();
+    server.useContext(app);
+
+    std.log.info("listening http://localhost:{d}", .{PORT});
 
     // create the routes
     {
         const r = server.router;
-        r.setLogLevel(.full);
         r.get("/", index);
         r.get("/style.css", styleCss);
-        r.get("/cats", catsList);
+        r.sse("/cats", catsList);
         r.post("/bid/:id", postBid);
     }
 
     // run the server
-    std.log.info("listening http://localhost:{d}", .{PORT});
-    try server.rebooter(init.minimal.args);
-    try server.maxFdLimits();
     try server.run();
 }
 
-fn index(_: *App, http: *HTTPRequest) !void {
+fn index(http: *HTTPRequest) !void {
     try http.html(@embedFile("02_index.html"));
 }
 
-fn styleCss(_: *App, http: *HTTPRequest) !void {
-    return http.html(@embedFile("style.css"));
+fn styleCss(http: *HTTPRequest) !void {
+    return http.css(@embedFile("style.css"));
 }
 
-fn catsList(app: *App, http: *HTTPRequest) !void {
+fn catsList(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
     var sse = try http.NewSSESync();
     defer sse.close();
     try pushCatList(app, &sse);
@@ -58,12 +63,21 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
     defer mq.deinit();
 
     try mq.subscribe(.cats);
-    mq.setTimeout(.fromSeconds(30));
 
-    while (try mq.next()) |event| {
+    while (try mq.nextTimeout(.fromSeconds(30))) |event| {
         switch (event) {
-            .msg => try pushCatList(app, &sse),
-            .timeout => try sse.keepalive(),
+            .msg => pushCatList(app, &sse) catch |err|
+                return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                    http.method,
+                    http.path,
+                    err,
+                }),
+            .timeout => sse.keepalive() catch |err|
+                return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                    http.method,
+                    http.path,
+                    err,
+                }),
         }
     }
 }
@@ -90,11 +104,10 @@ fn pushCatList(app: *App, sse: *datastar.SSE) !void {
     try sse.flush();
 }
 
-fn postBid(app: *App, http: *HTTPRequest) !void {
-    app.mutex.lock();
-    defer {
-        app.mutex.unlock();
-    }
+fn postBid(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
+    try app.lock();
+    defer app.unlock();
 
     const id = http.params.getInt(usize, "id") orelse 0;
 
@@ -108,6 +121,17 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
 
     // update any screens subscribed to "cats"
     try app.broadcast();
+
+    // If you dont reply here, the connection will be left open
+    // and the browser will be a response
+    //
+    // The router will detect this, and issue an automatic
+    // response 200 ok
+    //
+    // If you uncomment this next line, we send a custom json
+    // response to terminate the call, and the router wont intervene
+    //
+    // try http.json(.{ .bid = "ok", .id = id, .value = new_bid });
 }
 
 const Cat = struct {
@@ -153,19 +177,31 @@ const App = struct {
     io: Io,
     allocator: Allocator,
     cats: Cats,
-    mutex: std.Thread.Mutex,
+    mutex: Io.Mutex,
     pubsub: pubsub.PubSub(MQSchema),
 
-    pub fn init(io: Io, allocator: Allocator) !*App {
+    pub fn init(io: Io, pubsub_io: Io, allocator: Allocator) !*App {
+        _ = pubsub_io; // autofix
         const app = try allocator.create(App);
         app.* = .{
             .io = io,
             .allocator = allocator,
-            .mutex = .{},
+            .mutex = .init,
             .cats = try createCats(allocator),
+            // OK, for now pubsub over fibers is completely borked due to the way
+            // timers are in transition - use Threaded IO for pubsub for now
+            // .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
             .pubsub = pubsub.PubSub(MQSchema).init(io, allocator),
         };
         return app;
+    }
+
+    pub fn lock(app: *App) !void {
+        try app.mutex.lock(app.io);
+    }
+
+    pub fn unlock(app: *App) void {
+        app.mutex.unlock(app.io);
     }
 
     pub fn deinit(app: *App) void {

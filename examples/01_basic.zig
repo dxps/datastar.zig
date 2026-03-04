@@ -1,59 +1,71 @@
 const std = @import("std");
 const datastar = @import("datastar");
+const options = @import("options");
 const HTTPRequest = datastar.HTTPRequest;
 
 const Io = std.Io;
 
 const PORT = 8081;
 
+pub const std_options = std.Options{ .log_level = .debug };
+
 var update_count: usize = 1;
-var update_mutex: std.Thread.Mutex = .{};
+var update_mutex: Io.Mutex = .init;
 
 var prng: std.Random.DefaultPrng = .init(0);
 
-fn getCountAndIncrement() usize {
-    update_mutex.lock();
+fn getCountAndIncrement(io: Io) !usize {
+    try update_mutex.lock(io);
     defer {
         update_count += 1;
-        update_mutex.unlock();
+        update_mutex.unlock(io);
     }
     return update_count;
 }
 
-const HTTPServer = datastar.Server(void);
-
 var hotreload_id: u64 = 0;
 
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    const now = try std.Io.Clock.real.now(io);
+fn setHotReload(io: Io) !void {
+    const now = std.Io.Clock.real.now(io);
     prng.seed(@intCast(now.toMilliseconds()));
     hotreload_id = prng.random().int(u64);
     std.log.debug("Hotreload ID {}", .{hotreload_id});
+}
 
-    var server = try HTTPServer.initIp6(io, allocator, PORT);
+pub fn main(init: std.process.Init) !void {
+    try setHotReload(init.io);
+
+    var server = try datastar.HTTPServer.init(init, .{
+        .port = PORT,
+        .log = .{
+            .format = .terminal,
+            .theme = .monochrom,
+            .level = .payload,
+            .fast_us = 80,
+            .slow_ms = 200,
+        },
+        .watch = true,
+        .fd_limit = .max,
+        // .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
+        // .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
+    });
     defer server.deinit();
-
-    // Max out the Process FD Quota, useful for stress testing
-    try server.maxFdLimits();
+    std.log.info("Server listening on http://localhost:{}", .{PORT});
 
     {
         const r = server.router;
-        r.setLogLevel(.full);
         r.get("/", index);
         r.get("/style.css", styleCss);
 
         r.get("/text-html", textHtml);
-        r.get("/patch", patchElements);
+        r.patch("/patch", patchElements);
         r.post("/patch/opts", patchElementsOpts);
         r.post("/patch/opts/reset", patchElementsOptsReset);
         r.get("/patch/json", jsonSignals);
         r.get("/patch/signals", patchSignals);
         r.get("/patch/signals/onlymissing", patchSignalsOnlyIfMissing);
         r.get("/patch/signals/remove/:names", patchSignalsRemove);
-        r.get("/executescript/:sample", executeScript);
+        r.put("/executescript/:sample", executeScript);
         r.get("/svg-morph", svgMorph);
         r.get("/mathml-morph", mathMorph);
         r.get("/code/:snip", code);
@@ -64,9 +76,6 @@ pub fn main(init: std.process.Init) !void {
         r.post("/hotreload/:id", hotreload);
     }
 
-    try server.rebooter(init.minimal.args);
-
-    std.log.info("Server listening on http://localhost:{}", .{PORT});
     try server.run();
 }
 
@@ -101,7 +110,7 @@ fn textHtml(http: *HTTPRequest) !void {
     try http.html(
         try std.fmt.allocPrint(http.arena,
             \\<p id="text-html">This is update number {d}</p>
-        , .{getCountAndIncrement()}),
+        , .{try getCountAndIncrement(http.io)}),
     );
 }
 
@@ -128,7 +137,7 @@ fn patchElements(http: *HTTPRequest) !void {
     try sse.patchElementsFmt(
         \\<p id="mf-patch">This is update number {d}</p>
     ,
-        .{getCountAndIncrement()},
+        .{try getCountAndIncrement(http.io)},
         .{},
     );
 }
@@ -175,7 +184,7 @@ fn patchElementsOpts(http: *HTTPRequest) !void {
         else => {
             try w.print(
                 \\<p>This is update number {d}</p>
-            , .{getCountAndIncrement()});
+            , .{try getCountAndIncrement(http.io)});
         },
     }
 }
@@ -185,9 +194,7 @@ fn patchElementsOptsReset(http: *HTTPRequest) !void {
     var sse = try http.NewSSE();
     defer sse.close();
 
-    try sse.patchElements(@embedFile("01_index_opts.html"), .{
-        .selector = "#patch-element-card",
-    });
+    try sse.patchElements(@embedFile("01_index_opts.html"), .{});
 }
 
 // update signals using plain old JSON response
@@ -444,7 +451,11 @@ fn code(http: *HTTPRequest) !void {
 fn mimeTest(http: *HTTPRequest) !void {
     const filename = http.params.get("filename") orelse return error.NoFilename;
     return http.sendFile(
-        try std.fmt.allocPrint(http.arena, "examples/assets/mime-tests/{s}", .{filename}),
+        try std.fmt.allocPrint(
+            http.arena,
+            "examples/assets/mime-tests/{s}",
+            .{filename},
+        ),
         null,
     );
 }

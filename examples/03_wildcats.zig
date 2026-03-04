@@ -1,12 +1,16 @@
 const std = @import("std");
 const datastar = @import("datastar");
+const options = @import("options");
+const HTTPRequest = datastar.HTTPRequest;
+
 const pubsub = datastar.pubsub;
 
 const Io = std.Io;
-const HTTPRequest = datastar.HTTPRequest;
 const Allocator = std.mem.Allocator;
 
 const PORT = 8083;
+
+pub const std_options = std.Options{ .log_level = .debug };
 
 // Schema for messages passed over pubsub
 const MQSchema = union(enum) {
@@ -17,24 +21,27 @@ const MQSchema = union(enum) {
 // This example demonstrates a simple auction site that uses
 // SSE and pub/sub to have realtime updates of bids on a Cat auction
 // with session based preferences
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    // Create the global app instance
-    var app = try App.init(io, allocator);
-    defer app.deinit();
-
+pub fn main(process_init: std.process.Init) !void {
     // create the server
-    const HTTPServer = datastar.Server(*App);
-    var server = try HTTPServer.initIp6(io, allocator, PORT);
-    server.setContext(app);
+    var server = try datastar.HTTPServer.init(process_init, .{
+        .port = PORT,
+        .watch = true,
+        .fd_limit = .limited(2000),
+        // .allocator = if (options.enable_fibers) std.heap.smp_allocator else null,
+        // .sse_concurrency = if (options.enable_fibers) .fibers else .threads,
+    });
     defer server.deinit();
+
+    // Create the global app instance and attach it to the server
+    var app = try App.init(server.io, server.io_fibers orelse server.io, server.allocator);
+    defer app.deinit();
+    server.useContext(app);
+
+    std.log.info("listening http://localhost:{d}", .{PORT});
 
     // create the routes
     {
         const r = server.router;
-        r.setLogLevel(.full);
         r.get("/", index);
         r.get("/style.css", styleCss);
         r.get("/cats", catsList);
@@ -43,13 +50,12 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // run the server
-    std.log.info("listening http://localhost:{d}", .{PORT});
-    try server.maxFdLimits();
-    try server.rebooter(init.minimal.args);
     try server.run();
 }
 
-fn index(app: *App, http: *HTTPRequest) !void {
+fn index(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
+
     // ensure they have a cookie
     const session_string = http.getCookie("session") orelse blk: {
         const new_session_string = try std.fmt.allocPrint(http.arena, "{}", .{try app.newSessionID()});
@@ -60,13 +66,14 @@ fn index(app: *App, http: *HTTPRequest) !void {
     try http.html(@embedFile("03_index.html"));
 }
 
-fn styleCss(_: *App, http: *HTTPRequest) !void {
-    return http.html(@embedFile("style.css"));
+fn styleCss(http: *HTTPRequest) !void {
+    return http.css(@embedFile("style.css"));
 }
 
-fn catsList(app: *App, http: *HTTPRequest) !void {
+fn catsList(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
     const session = http.getCookie("session") orelse return error.NoCookie;
-    const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
+    const sort_prefs: SessionPrefs = app.sessions.get(session) orelse .{ .sort = .id };
     std.log.info("catList for session {s} with prefs {t}", .{ session, sort_prefs.sort });
 
     var sse = try http.NewSSESync();
@@ -82,21 +89,37 @@ fn catsList(app: *App, http: *HTTPRequest) !void {
     mq.setFilter(.fromSlice(session));
     try mq.subscribe(.cats);
     try mq.subscribe(.prefs);
-    mq.setTimeout(.fromSeconds(30));
 
-    while (try mq.next()) |event| {
+    while (try mq.nextTimeout(.fromSeconds(30))) |event| {
         std.log.info("Session {s} got event {f}", .{ session, event });
         switch (event) {
             .msg => |m| switch (m.topic) {
-                .cats => try app.pushCatList(&sse, session),
-                .prefs => try app.pushAll(&sse, session),
+                .cats => app.pushCatList(&sse, session) catch |err|
+                    return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                        http.method,
+                        http.getPathOnly(),
+                        err,
+                    }),
+                .prefs => app.pushAll(&sse, session) catch |err|
+                    return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                        http.method,
+                        http.getPathOnly(),
+                        err,
+                    }),
             },
-            .timeout => try sse.keepalive(),
+            .timeout => sse.keepalive() catch |err|
+                return std.log.warn("Connection lost {t} {s} : {} - expect reconnect", .{
+                    http.method,
+                    http.getPathOnly(),
+                    err,
+                }),
         }
     }
 }
 
-fn postBid(app: *App, http: *HTTPRequest) !void {
+fn postBid(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
+
     // get the numeric cat_id from the request params POST /bid/:id
     const cat_id = http.params.getInt(usize, "id") orelse return error.InvalidCat;
 
@@ -104,14 +127,14 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
         return error.InvalidID;
     }
 
-    app.mutex.lock();
-    defer app.mutex.unlock();
+    try app.lock();
+    defer app.unlock();
     app.sortCats(.id);
 
     const signals = try http.readSignals(struct { bids: []usize });
     const new_bid = signals.bids[cat_id];
 
-    const now = try Io.Clock.real.now(app.io);
+    const now = Io.Clock.real.now(app.io);
 
     app.cats.items[cat_id].bid = new_bid;
     app.cats.items[cat_id].ts = now;
@@ -122,12 +145,15 @@ fn postBid(app: *App, http: *HTTPRequest) !void {
     try http.json(.{ .bid = "ok", .id = cat_id, .value = new_bid });
 }
 
-fn postSort(app: *App, http: *HTTPRequest) !void {
+fn postSort(http: *HTTPRequest) !void {
+    const app = http.getCtx(*App);
+    std.log.debug("app = {x}{} http.ctx = {x}{}\n", .{ @intFromPtr(app), @TypeOf(app), @intFromPtr(http.ctx.?), @TypeOf(http.ctx) });
+
     const session = http.getCookie("session") orelse return error.NoSession;
     const filter_id: pubsub.FilterId = .fromSlice(session);
 
-    app.mutex.lock();
-    defer app.mutex.unlock();
+    try app.lock();
+    defer app.unlock();
 
     var opt = try http.readSignals(struct { sort: []const u8 });
     const new_sort: SortType = .fromString(opt.sort);
@@ -212,23 +238,35 @@ const App = struct {
     io: Io,
     allocator: Allocator,
     cats: Cats,
-    mutex: std.Thread.Mutex,
+    mutex: Io.Mutex,
     pubsub: pubsub.PubSub(MQSchema),
     next_session_id: usize = 1,
     sessions: std.StringHashMap(SessionPrefs),
     last_sort: SortType = .id,
 
-    pub fn init(io: Io, allocator: Allocator) !*App {
+    pub fn init(io: Io, pubsub_io: Io, allocator: Allocator) !*App {
+        _ = pubsub_io; // autofix
         const app = try allocator.create(App);
         app.* = .{
             .io = io,
             .allocator = allocator,
-            .mutex = .{},
+            .mutex = .init,
+            // OK, for now pubsub over fibers is completely borked due to the way
+            // timers are in transition - use Threaded IO for pubsub for now
+            // .pubsub = pubsub.PubSub(MQSchema).init(pubsub_io, allocator),
             .pubsub = pubsub.PubSub(MQSchema).init(io, allocator),
             .cats = try createCats(allocator),
             .sessions = std.StringHashMap(SessionPrefs).init(allocator),
         };
         return app;
+    }
+
+    pub fn lock(app: *App) !void {
+        try app.mutex.lock(app.io);
+    }
+
+    pub fn unlock(app: *App) void {
+        app.mutex.unlock(app.io);
     }
 
     pub fn deinit(app: *App) void {
@@ -242,8 +280,8 @@ const App = struct {
     }
 
     pub fn newSessionID(app: *App) !usize {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
         const s = app.next_session_id;
         app.next_session_id += 1;
 
@@ -260,8 +298,8 @@ const App = struct {
     }
 
     pub fn ensureSession(app: *App, session_id: []const u8) !void {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
 
         if (app.sessions.get(session_id) == null) {
             try app.sessions.put(try app.allocator.dupe(u8, session_id), .{});
@@ -307,10 +345,10 @@ const App = struct {
     }
 
     pub fn pushCatList(app: *App, sse: *datastar.SSE, session: []const u8) !void {
-        app.mutex.lock();
-        defer app.mutex.unlock();
+        try app.lock();
+        defer app.unlock();
 
-        const sort_prefs = app.sessions.get(session) orelse return error.NoSortPrefs;
+        const sort_prefs = app.sessions.get(session) orelse return error.InvalidSession;
         std.log.info("pushCatList for session {s} with prefs {}", .{ session, sort_prefs });
 
         app.sortCats(.id);
