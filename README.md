@@ -21,9 +21,35 @@ with being on the bleeding edge !! You have been warned !!
 | **19-Jan-2026** | `0.16.0-dev.2193+fc517bd01` | `http.content()`, `http.css()`, `http.sendFile()` |
 | **20-Jan-2026** | `0.16.0-dev.2193+fc517bd01` | `Breaking Changes` - Removed ServerCtx - use type erased ctx in http request |
 | **08-Feb-2026** | `0.16.0-dev.2510` | Still trying to get fibers sort of half reliable. They dont crash, but they dont always work either |
+| **04-Mar-2026** | `0.16.0-dev.2682` | |
 
 
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig
+
+# DOCUMENTATION AND DEV VERSION WARNING
+
+This current README is pretty big - and is very much a work in progress till 0.16 stabilises, and until I have time 
+to write up a proper doc / tutorial.
+
+I have pushed the dev branch onto master now, because Zig stdlib is changing too fast, such that master 
+doesnt even compile anymore with the latest zig.
+
+So the code is up to date, but this README is not. It will contain some misinformation until its updated, which could take a bit longer, sorry.
+
+If in doubt - DO NOT COPYPASTE CODE FROM THIS README and expect it all of it to work without some editting ... check the examples and the repo code instead.
+
+Also, this is working with Zig 0.16-2682 .. there is no guarantee that extra releases of Zig 0.16 wont suddenly break this code.
+
+Also, on Linux/x86- if `zig build` fails with strange errors, then revert to using `zig build -Doptimize=ReleaseSafe` .. the current x86 backend
+may be flakey with this code, YMMV.  
+
+If you want to be using Postgres in your backends with Zig 0.16 - I have a branch here that works with `pg.zig`, although the changes needed
+to get it running under 0.16 are starting to get ugly indeed.  
+
+https://github.com/zigster64/pg.zig
+
+
+Enjoy the ride on the bleeding edge !
 
 # Audience and Scope
 
