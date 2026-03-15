@@ -22,6 +22,7 @@ with being on the bleeding edge !! You have been warned !!
 | **20-Jan-2026** | `0.16.0-dev.2193+fc517bd01` | `Breaking Changes` - Removed ServerCtx - use type erased ctx in http request |
 | **08-Feb-2026** | `0.16.0-dev.2510` | Still trying to get fibers sort of half reliable. They dont crash, but they dont always work either |
 | **04-Mar-2026** | `0.16.0-dev.2682` | |
+| **15-Mar-2026** | `0.16.0-dev.2821` | ArrayListUnmanaged now deprecated |
 
 
 For stable Zig 0.15.2 - see https://github.com/zigster64/datastar.http.zig

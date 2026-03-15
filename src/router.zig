@@ -16,7 +16,7 @@ const Node = struct {
     param_name: []const u8 = "",
     handlers: [std.enums.values(std.http.Method).len]?RouteHandlerFn = [_]?RouteHandlerFn{null} ** std.enums.values(std.http.Method).len,
     fiber: [std.enums.values(std.http.Method).len]bool = [_]bool{false} ** std.enums.values(std.http.Method).len,
-    children: std.ArrayListUnmanaged(*Node) = .{},
+    children: std.ArrayList(*Node) = .empty,
 
     fn deinit(self: *Node, alloc: std.mem.Allocator) void {
         for (self.children.items) |child| child.deinit(alloc);
