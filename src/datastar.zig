@@ -149,7 +149,7 @@ pub const SSE = struct {
     }
 
     pub fn patchElements(self: *SSE, elements: []const u8, opt: PatchElementsOptions) !void {
-        var msg: Message = undefined;
+        var msg: Message = .{};
         msg.init(.patchElements, opt, &self.output_buffer.writer);
         try msg.header();
         var w = &msg.interface;
@@ -159,7 +159,7 @@ pub const SSE = struct {
     }
 
     pub fn patchElementsFmt(self: *SSE, comptime elements: []const u8, args: anytype, opt: PatchElementsOptions) !void {
-        var msg: Message = undefined;
+        var msg: Message = .{};
         msg.init(.patchElements, opt, &self.output_buffer.writer);
         try msg.header();
         var w = &msg.interface;
@@ -179,7 +179,7 @@ pub const SSE = struct {
     }
 
     pub fn patchSignals(self: *SSE, value: anytype, json_opt: std.json.Stringify.Options, opt: PatchSignalsOptions) !void {
-        var msg: Message = undefined;
+        var msg: Message = .{};
         msg.init(.patchSignals, opt, &self.output_buffer.writer);
         try msg.header();
 
@@ -201,7 +201,7 @@ pub const SSE = struct {
 
     pub fn executeScript(self: *SSE, script: []const u8, opt: ExecuteScriptOptions) !void {
         try self.flush();
-        var msg: Message = undefined;
+        var msg: Message = .{};
         msg.init(.executeScript, opt, &self.output_buffer.writer);
         var w = &msg.interface;
         try msg.header();
@@ -212,7 +212,7 @@ pub const SSE = struct {
 
     pub fn executeScriptFmt(self: *SSE, comptime script: []const u8, args: anytype, opt: ExecuteScriptOptions) !void {
         try self.flush();
-        var msg: Message = undefined;
+        var msg: Message = .{};
         msg.init(.executeScript, opt, &self.output_buffer.writer);
         var w = &msg.interface;
         try msg.header();
