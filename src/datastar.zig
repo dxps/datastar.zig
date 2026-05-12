@@ -46,7 +46,38 @@ pub const PatchSignalsOptions = struct {
     retry_duration: ?i64 = null,
 };
 
-pub const ScriptAttributes = std.StringArrayHashMap([]const u8);
+pub const ScriptAttributes = struct {
+    allocator: Allocator,
+    map: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
+
+    pub fn init(allocator: Allocator) ScriptAttributes {
+        return .{ .allocator = allocator };
+    }
+
+    pub fn deinit(self: *ScriptAttributes) void {
+        self.map.deinit(self.allocator);
+    }
+
+    pub fn put(self: *ScriptAttributes, key: []const u8, value: []const u8) !void {
+        try self.map.put(self.allocator, key, value);
+    }
+
+    pub fn count(self: ScriptAttributes) usize {
+        return self.map.count();
+    }
+
+    pub fn get(self: ScriptAttributes, key: []const u8) ?[]const u8 {
+        return self.map.get(key);
+    }
+
+    pub fn keys(self: ScriptAttributes) []const []const u8 {
+        return self.map.keys();
+    }
+
+    pub fn values(self: ScriptAttributes) []const []const u8 {
+        return self.map.values();
+    }
+};
 
 pub const ExecuteScriptOptions = struct {
     auto_remove: bool = true, // by default remove the script after use, otherwise explicity set this to false if you want to keep the script loaded
