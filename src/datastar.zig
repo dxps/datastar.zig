@@ -1,8 +1,8 @@
 const std = @import("std");
-pub const pubsub = @import("pubsub");
-
 const Io = std.Io;
 const Allocator = std.mem.Allocator;
+
+pub const pubsub = @import("pubsub");
 
 pub const HTTPServer = @import("server.zig");
 pub const HTTPRequest = HTTPServer.HTTPRequest;
@@ -47,8 +47,10 @@ pub const PatchSignalsOptions = struct {
 };
 
 pub const ScriptAttributes = struct {
+    const Map = std.array_hash_map.String([]const u8);
+
+    map: Map = .empty,
     allocator: Allocator,
-    map: std.StringArrayHashMapUnmanaged([]const u8) = .empty,
 
     pub fn init(allocator: Allocator) ScriptAttributes {
         return .{ .allocator = allocator };
@@ -70,11 +72,11 @@ pub const ScriptAttributes = struct {
         return self.map.get(key);
     }
 
-    pub fn keys(self: ScriptAttributes) []const []const u8 {
+    pub fn keys(self: ScriptAttributes) [][]const u8 {
         return self.map.keys();
     }
 
-    pub fn values(self: ScriptAttributes) []const []const u8 {
+    pub fn values(self: ScriptAttributes) [][]const u8 {
         return self.map.values();
     }
 };
